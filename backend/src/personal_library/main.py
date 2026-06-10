@@ -18,6 +18,8 @@ from personal_library.database import close_engine
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """应用生命周期管理"""
+    from personal_library.api.v1.admin import start_cleanup
+    start_cleanup()
     yield
     await close_engine()
 

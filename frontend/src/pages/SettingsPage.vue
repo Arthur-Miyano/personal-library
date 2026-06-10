@@ -1,10 +1,13 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
-import { useRouter } from 'vue-router'
-import { settingsApi, fontsApi } from '@/api'
+import { settingsApi, fontsApi, authApi } from '@/api'
 import type { UserSettings } from '@/types'
+import { inject } from 'vue'
 
-const router = useRouter()
+const router = inject('router')
+const changeTheme = inject<(t: string) => void>('changeTheme') || (() => {})
+
+const isSuperuser = ref(false)
 const settings = ref<UserSettings>({
   theme_mode: 'light', bg_color: '#FFFFFF', bg_opacity: 1,
   font_family: 'system-ui', font_size: 16, line_height: 1.9,
@@ -14,9 +17,13 @@ const settings = ref<UserSettings>({
 const fonts = ref<{ id: string; font_family: string }[]>([])
 
 onMounted(async () => {
-  const [s, f] = await Promise.all([settingsApi.get(), fontsApi.list()])
+  const [s, f, u] = await Promise.all([
+    settingsApi.get(), fontsApi.list(),
+    authApi.me().catch(() => ({ data: { is_superuser: false } })),
+  ])
   Object.assign(settings.value, s.data)
   fonts.value = f.data
+  isSuperuser.value = u.data.is_superuser
 })
 
 async function save(key: string, value: unknown) {
@@ -26,54 +33,205 @@ async function save(key: string, value: unknown) {
 
 <template>
   <div class="settings-page">
-    <h2>阅读设置</h2>
-    <div class="setting-item">
-      <span>字体</span>
-      <el-select :model-value="settings.font_family" style="width:180px"
-        @change="(v: string) => { settings.font_family = v; save('font_family', v) }">
-        <el-option label="system-ui" value="system-ui" />
-        <el-option label="思源黑体" value="Noto Sans SC" />
-        <el-option label="苹方" value="PingFang SC" />
-        <el-option label="宋体" value="SimSun" />
-        <el-option label="楷体" value="KaiTi" />
-        <el-option v-for="f in fonts" :key="f.id" :label="f.font_family" :value="f.font_family" />
-      </el-select>
-      <el-button text size="small" @click="router.push('/fonts')">管理字体</el-button>
+    <h2 class="page-title serif-text">阅读设置</h2>
+
+    <div class="settings-section">
+      <div class="setting-row">
+        <span class="setting-label">字体</span>
+        <select class="setting-select" :value="settings.font_family"
+          @change="(e: any) => { settings.font_family = e.target.value; save('font_family', e.target.value) }">
+          <option value="system-ui">system-ui</option>
+          <option value="Noto Sans SC">思源黑体</option>
+          <option value="PingFang SC">苹方</option>
+          <option value="SimSun">宋体</option>
+          <option value="KaiTi">楷体</option>
+          <option v-for="f in fonts" :key="f.id" :value="f.font_family">{{ f.font_family }}</option>
+        </select>
+      </div>
+
+      <div class="setting-row">
+        <span class="setting-label">字号</span>
+        <input type="range" :min="12" :max="32" :value="settings.font_size"
+          @input="(e: any) => { settings.font_size = +e.target.value; save('font_size', +e.target.value) }" />
+        <span class="setting-value">{{ settings.font_size }}px</span>
+      </div>
+
+      <div class="setting-row">
+        <span class="setting-label">行高</span>
+        <input type="range" :min="1.2" :max="3.0" step="0.1" :value="settings.line_height"
+          @input="(e: any) => { settings.line_height = +e.target.value; save('line_height', +e.target.value) }" />
+        <span class="setting-value">{{ settings.line_height }}</span>
+      </div>
+
+      <div class="setting-row">
+        <span class="setting-label">阅读宽度</span>
+        <input type="range" :min="400" :max="1200" step="50" :value="settings.reader_max_width"
+          @input="(e: any) => { settings.reader_max_width = +e.target.value; save('reader_max_width', +e.target.value) }" />
+        <span class="setting-value">{{ settings.reader_max_width }}px</span>
+      </div>
+
+      <div class="setting-row">
+        <span class="setting-label">首行缩进</span>
+        <label class="toggle">
+          <input type="checkbox" :checked="settings.first_line_indent"
+            @change="(e: any) => { settings.first_line_indent = e.target.checked; save('first_line_indent', e.target.checked) }" />
+          <span class="toggle-knob"></span>
+        </label>
+      </div>
+
+      <div class="setting-row">
+        <span class="setting-label">背景色</span>
+        <input type="color" :value="settings.bg_color"
+          @input="(e: any) => { settings.bg_color = e.target.value; save('bg_color', e.target.value) }" />
+      </div>
     </div>
-    <div class="setting-item">
-      <span>字体大小</span>
-      <el-slider :model-value="settings.font_size" :min="12" :max="32" style="width:200px"
-        @change="(v: number) => { settings.font_size = v; save('font_size', v) }" />
-      <span>{{ settings.font_size }}px</span>
-    </div>
-    <div class="setting-item">
-      <span>行高</span>
-      <el-slider :model-value="settings.line_height" :min="1.2" :max="3.0" :step="0.1" style="width:200px"
-        @change="(v: number) => { settings.line_height = v; save('line_height', v) }" />
-      <span>{{ settings.line_height }}</span>
-    </div>
-    <div class="setting-item">
-      <span>阅读宽度</span>
-      <el-slider :model-value="settings.reader_max_width" :min="400" :max="1200" :step="50" style="width:200px"
-        @change="(v: number) => { settings.reader_max_width = v; save('reader_max_width', v) }" />
-      <span>{{ settings.reader_max_width }}px</span>
-    </div>
-    <div class="setting-item">
-      <span>首行缩进</span>
-      <el-switch :model-value="settings.first_line_indent"
-        @change="(v: boolean) => { settings.first_line_indent = v; save('first_line_indent', v) }" />
-    </div>
-    <div class="setting-item">
-      <span>背景颜色</span>
-      <el-color-picker :model-value="settings.bg_color"
-        @change="(v: string | null) => { if (v) { settings.bg_color = v; save('bg_color', v) } }" />
+
+    <div v-if="isSuperuser" class="admin-section">
+      <h3 class="section-title">管理功能</h3>
+      <button class="admin-btn" @click="alert('请在侧边栏账号面板中操作')">服务器导入</button>
     </div>
   </div>
 </template>
 
 <style scoped>
-.settings-page { padding: 12px 16px; }
-.settings-page h2 { font-size: 20px; margin-bottom: 16px; }
-.setting-item { display: flex; align-items: center; gap: 12px; padding: 12px 0; border-bottom: 1px solid var(--el-border-color-lighter); }
-.setting-item > span:first-child { width: 80px; font-size: 15px; flex-shrink: 0; }
+.settings-page {
+  padding: 24px 32px;
+  max-width: 600px;
+}
+.page-title {
+  font-size: 20px;
+  font-weight: 700;
+  margin-bottom: 24px;
+  color: var(--text-main);
+}
+.settings-section {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.setting-row {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 14px 0;
+  border-bottom: 1px solid var(--border);
+}
+.setting-label {
+  width: 80px;
+  font-size: 14px;
+  color: var(--text-main);
+  flex-shrink: 0;
+}
+.setting-select {
+  flex: 1;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-surface);
+  color: var(--text-main);
+  font-size: 13px;
+  outline: none;
+}
+.setting-select:focus { border-color: var(--primary); }
+.setting-select option { background: var(--bg-surface); color: var(--text-main); }
+.setting-value {
+  font-size: 12px;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  min-width: 50px;
+  text-align: right;
+}
+
+/* 自定义 range */
+input[type="range"] {
+  flex: 1;
+  -webkit-appearance: none;
+  appearance: none;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--border);
+  outline: none;
+}
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--primary);
+  cursor: pointer;
+  border: 2px solid var(--bg-surface);
+  box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+}
+
+/* 自定义 toggle */
+.toggle {
+  position: relative;
+  display: inline-block;
+  width: 40px;
+  height: 22px;
+  cursor: pointer;
+}
+.toggle input { display: none; }
+.toggle-knob {
+  position: absolute;
+  inset: 0;
+  background: var(--border);
+  border-radius: 11px;
+  transition: background 0.2s;
+}
+.toggle-knob::before {
+  content: '';
+  position: absolute;
+  width: 18px;
+  height: 18px;
+  left: 2px;
+  bottom: 2px;
+  background: white;
+  border-radius: 50%;
+  transition: transform 0.2s;
+}
+.toggle input:checked + .toggle-knob { background: var(--primary); }
+.toggle input:checked + .toggle-knob::before { transform: translateX(18px); }
+
+input[type="color"] {
+  width: 36px;
+  height: 36px;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  padding: 0;
+  background: none;
+}
+input[type="color"]::-webkit-color-swatch-wrapper { padding: 2px; }
+input[type="color"]::-webkit-color-swatch { border: 1px solid var(--border); border-radius: 6px; }
+
+.admin-section {
+  margin-top: 32px;
+  padding: 20px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--bg-surface);
+}
+.section-title {
+  font-size: 14px;
+  font-weight: 600;
+  margin-bottom: 12px;
+}
+.admin-btn {
+  padding: 8px 20px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-main);
+  font-size: 13px;
+  cursor: pointer;
+}
+.admin-btn:hover {
+  border-color: var(--primary);
+  color: var(--primary);
+}
+
+@media (max-width: 768px) {
+  .settings-page { padding: 16px; }
+}
 </style>

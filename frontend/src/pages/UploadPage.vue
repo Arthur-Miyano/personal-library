@@ -2,7 +2,7 @@
 import { ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { ArrowLeft } from '@element-plus/icons-vue'
+import { ArrowLeft, UploadFilled } from '@element-plus/icons-vue'
 import type { UploadRawFile } from 'element-plus'
 import api from '@/api'
 
@@ -14,9 +14,7 @@ async function handleUpload(rawFile: UploadRawFile) {
   try {
     const form = new FormData()
     form.append('file', rawFile)
-    const { data } = await api.post('/upload', form, {
-      headers: { 'Content-Type': 'multipart/form-data' },
-    })
+    const { data } = await api.post('/upload', form)
     ElMessage.success('上传成功')
     router.replace(`/reader/${data.id}`)
   } catch (e: unknown) {

@@ -10,6 +10,7 @@ export interface Article {
   user_id: string
   created_at: string
   updated_at: string
+  content_hash: string
   tags?: Tag[]
   collection?: Collection
 }

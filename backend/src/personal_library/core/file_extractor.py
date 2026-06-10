@@ -4,9 +4,14 @@ import zipfile
 from io import BytesIO
 
 
-def extract_text(file_bytes: bytes, filename: str) -> str:
-    """根据扩展名提取文本。支持 .txt .md .html .epub .pdf .docx"""
+VALID_ENCODINGS = {"auto", "utf-8", "gbk", "gb18030"}
+
+def extract_text(file_bytes: bytes, filename: str, encoding_hint: str = "auto", errors: str = "strict") -> str:
+    """根据扩展名提取文本。encoding_hint: auto|utf-8|gbk|gb18030, errors: strict|replace|ignore"""
     ext = os.path.splitext(filename)[1].lower()
+
+    if encoding_hint != "auto" and ext in (".txt", ".md"):
+        return file_bytes.decode(encoding_hint, errors=errors)
 
     if ext in (".txt", ".md"):
         return _decode_text(file_bytes, filename)

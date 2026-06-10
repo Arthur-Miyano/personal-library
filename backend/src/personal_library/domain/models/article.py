@@ -55,6 +55,11 @@ class Article(Base, TimestampMixin):
         Boolean, nullable=False, default=False
     )
 
+    # 内容 SHA256 哈希（去重用，空串=未计算）
+    content_hash: Mapped[str] = mapped_column(
+        String(64), nullable=False, default=""
+    )
+
     # 这篇文章属于哪个用户（外键关联到 users 表）
     user_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),

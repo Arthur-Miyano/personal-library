@@ -74,10 +74,12 @@ async def upload_font(
             db=db, user_id=current_user.id, filename=filename,
             stored_path=stored_path, font_family=font_family, file_size=len(data),
         )
-    except Exception:
-        if os.path.exists(local_path):
-            os.unlink(local_path)
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="数据库写入失败")
+    except Exception as e:
+        import traceback, logging
+        logging.getLogger(__name__).error(f"字体入库失败: {traceback.format_exc()}")
+        # 文件已保存，不删除
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                            detail=f"数据库写入失败: {str(e)[:200]}")
 
     return font
 

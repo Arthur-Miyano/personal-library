@@ -7,6 +7,9 @@ class Settings(BaseSettings):
     app_name: str = "personal_library"    # 应用名，有默认值
     app_env: str = "development"          # 运行环境：development / production
     upload_dir: str = "./uploads"         # 小说文件上传目录
+    import_root: str = ""                 # 服务器导入根目录（空=禁用）
+    import_max_files: int = 1000          # 单次导入文件数上限
+    import_max_file_size_mb: int = 50     # 单文件大小上限(MB)
 
     model_config = {
         "env_file": ".env",   # 从项目根目录的 .env 文件读取配置

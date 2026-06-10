@@ -1,8 +1,11 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
+import { useRouter } from 'vue-router'
+import { ArrowLeft } from '@element-plus/icons-vue'
 import { articlesApi } from '@/api'
 import type { Article } from '@/types'
 
+const router = useRouter()
 const articles = ref<Article[]>([])
 
 onMounted(async () => {
@@ -25,7 +28,10 @@ async function permanentDelete(id: string) {
 
 <template>
   <div class="trash-page">
-    <h2>回收站</h2>
+    <div class="page-header">
+      <el-icon @click="router.back()"><ArrowLeft /></el-icon>
+      <h2>回收站</h2>
+    </div>
     <div v-for="a in articles" :key="a.id" class="lofter-card trash-item">
       <div class="info">
         <span class="title">{{ a.title }}</span>
@@ -42,7 +48,8 @@ async function permanentDelete(id: string) {
 
 <style scoped>
 .trash-page { padding: 12px 16px; }
-.trash-page h2 { font-size: 20px; margin-bottom: 16px; }
+.page-header { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; }
+.page-header h2 { flex: 1; font-size: 20px; font-weight: 600; }
 .trash-item { display: flex; justify-content: space-between; align-items: center; }
 .info { display: flex; flex-direction: column; }
 .title { font-size: 15px; font-weight: 500; }

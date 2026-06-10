@@ -1,9 +1,10 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, onMounted, nextTick } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { useAppStore } from '@/stores/app'
 import { authApi } from '@/api'
+import gsap from 'gsap'
 
 const router = useRouter()
 const store = useAppStore()
@@ -11,8 +12,27 @@ const username = ref('')
 const password = ref('')
 const loading = ref(false)
 
-async function doLogin() {
-  if (!username.value || !password.value) {
+const parallaxStyle = ref('')
+
+onMounted(() => {
+  nextTick(() => {
+    gsap.fromTo('#login-card', { opacity: 0, y: 20 }, { opacity: 1, y: 0, duration: 0.6 })
+  })
+})
+
+function handle3DParallax(e: MouseEvent) {
+  const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
+  const x = e.clientX - rect.left - rect.width / 2
+  const y = e.clientY - rect.top - rect.height / 2
+  parallaxStyle.value = `transform: perspective(1000px) rotateX(${-(y / rect.height) * 6}deg) rotateY(${(x / rect.width) * 6}deg)`
+}
+
+function reset3DParallax() {
+  parallaxStyle.value = 'transform: perspective(1000px) rotateX(0deg) rotateY(0deg); transition: transform 0.5s ease'
+}
+
+async function handleLogin() {
+  if (!username.value.trim() || !password.value) {
     ElMessage.warning('请输入用户名和密码')
     return
   }
@@ -20,29 +40,167 @@ async function doLogin() {
   try {
     const { data } = await authApi.login({ username: username.value, password: password.value })
     store.setToken(data.access_token)
-    ElMessage.success('登录成功')
-    router.push('/home')
+    store.setUsername(data.user?.username || username.value)
+    // 登录动画
+    gsap.to('#login-card', {
+      scale: 0.97, opacity: 0, duration: 0.3,
+      onComplete: () => router.replace('/home')
+    })
   } catch (e: unknown) {
     const detail = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail
-    ElMessage.error(detail || '登录失败，请检查用户名和密码')
+    ElMessage.error(detail || '登录失败')
   } finally {
     loading.value = false
   }
+}
+
+function handleKeydown(e: KeyboardEvent) {
+  if (e.key === 'Enter') handleLogin()
 }
 </script>
 
 <template>
   <div class="login-page">
-    <h1 class="logo">个人图书馆</h1>
-    <el-input v-model="username" placeholder="用户名或邮箱" size="large" clearable />
-    <el-input v-model="password" type="password" placeholder="密码" size="large" show-password @keyup.enter="doLogin" />
-    <el-button type="primary" size="large" :loading="loading" block @click="doLogin">登录</el-button>
-    <p class="switch-link">还没有账号？<router-link to="/register">注册</router-link></p>
+    <div class="ink-container">
+      <div class="ink-blob"></div>
+      <div class="ink-blob"></div>
+    </div>
+
+    <div id="login-card" class="glass-card login-card"
+      @mousemove="handle3DParallax" @mouseleave="reset3DParallax"
+      :style="parallaxStyle">
+
+      <div class="login-header">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+          stroke-width="1.5" :style="{ color: 'var(--primary)' }">
+          <path d="M4 20V4a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v16l-4-2-4 2-4-2-4 2z" />
+        </svg>
+        <h2 class="login-title">藏卷小筑</h2>
+        <p class="login-subtitle">Archive Core System // v4.0</p>
+      </div>
+
+      <div class="login-form">
+        <input v-model="username" type="text" placeholder="账户凭证 / ID"
+          class="form-input" @keydown="handleKeydown" />
+        <input v-model="password" type="password" placeholder="密码"
+          class="form-input" @keydown="handleKeydown" />
+        <button class="login-btn" :disabled="loading" @click="handleLogin">
+          {{ loading ? '验证中...' : '进入书斋' }}
+        </button>
+      </div>
+
+      <div class="login-footer">
+        <span>还没有账号？</span>
+        <router-link to="/register" class="register-link">注册</router-link>
+      </div>
+    </div>
   </div>
 </template>
 
 <style scoped>
-.login-page { display: flex; flex-direction: column; gap: 16px; justify-content: center; min-height: 100vh; max-width: 320px; margin: 0 auto; padding: 40px 20px; }
-.logo { text-align: center; font-size: 28px; font-weight: 300; margin-bottom: 32px; }
-.switch-link { text-align: center; font-size: 14px; color: var(--el-text-color-secondary); }
+.login-page {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-base);
+  position: relative;
+  overflow: hidden;
+}
+
+.login-card {
+  width: 360px;
+  padding: 40px 32px;
+  border-radius: 16px;
+  position: relative;
+  z-index: 10;
+}
+
+.login-header {
+  text-align: center;
+  margin-bottom: 32px;
+}
+.login-header svg { width: 24px; height: 24px; margin-bottom: 12px; }
+
+.login-title {
+  font-size: 22px;
+  font-weight: 700;
+  font-family: var(--font-serif);
+  color: var(--text-main);
+  letter-spacing: 0.2em;
+}
+
+.login-subtitle {
+  font-size: 9px;
+  color: var(--text-muted);
+  margin-top: 6px;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  font-family: var(--font-mono);
+}
+
+.login-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.form-input {
+  width: 100%;
+  padding: 12px 16px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  font-size: 13px;
+  background: var(--bg-base);
+  color: var(--text-main);
+  outline: none;
+  transition: border-color 0.2s;
+}
+.form-input:focus {
+  border-color: var(--primary);
+}
+.form-input::placeholder {
+  color: var(--text-muted);
+}
+
+.login-btn {
+  width: 100%;
+  margin-top: 8px;
+  padding: 12px;
+  border: none;
+  border-radius: 10px;
+  font-size: 12px;
+  letter-spacing: 0.1em;
+  color: #fff;
+  background: var(--primary);
+  cursor: pointer;
+  transition: all 0.2s;
+  font-weight: 500;
+}
+.login-btn:hover {
+  opacity: 0.9;
+}
+.login-btn:active {
+  transform: scale(0.98);
+}
+.login-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.login-footer {
+  margin-top: 24px;
+  text-align: center;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+.register-link {
+  color: var(--primary);
+  text-decoration: none;
+  font-weight: 500;
+  margin-left: 4px;
+}
+.register-link:hover {
+  text-decoration: underline;
+}
 </style>

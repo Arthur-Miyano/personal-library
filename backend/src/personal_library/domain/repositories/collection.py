@@ -135,6 +135,22 @@ class CollectionRepository:
             collection.sort_order = Decimal(str(sort_order))
         await db.flush()
 
+    async def delete(
+        self,
+        db: AsyncSession,
+        collection: Collection,
+    ) -> None:
+        """删除收藏夹及其关联"""
+        from sqlalchemy import delete as sqla_delete
+        # 先删除关联
+        await db.execute(
+            sqla_delete(CollectionArticle).where(
+                CollectionArticle.collection_id == collection.id
+            )
+        )
+        await db.delete(collection)
+        await db.flush()
+
     async def update_article_sort(
         self,
         db: AsyncSession,

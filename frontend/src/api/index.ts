@@ -11,12 +11,29 @@ api.interceptors.request.use((config) => {
   return config
 })
 
+let isRefreshing = false
+let refreshPromise: Promise<unknown> | null = null
+
 api.interceptors.response.use(
   (res) => res,
-  (err) => {
+  async (err) => {
     if (err.response?.status === 401) {
       const url = err.config?.url || ''
-      if (!url.includes('/auth/login') && !url.includes('/auth/register') && !url.includes('/auth/token')) {
+      if (url.includes('/auth/login') || url.includes('/auth/register') || url.includes('/auth/token') || url.includes('/auth/refresh')) {
+        return Promise.reject(err)
+      }
+      if (!isRefreshing) {
+        isRefreshing = true
+        refreshPromise = authApi.refresh().then(r => {
+          localStorage.setItem('token', r.data.access_token)
+          return r.data.access_token
+        }).finally(() => { isRefreshing = false; refreshPromise = null })
+      }
+      try {
+        const newToken = await refreshPromise
+        err.config.headers.Authorization = `Bearer ${newToken}`
+        return api(err.config)
+      } catch {
         localStorage.removeItem('token')
         window.location.href = '/login'
       }
@@ -75,6 +92,7 @@ export const collectionsApi = {
     api.patch(`/collections/${collectionId}/articles/${articleId}/sort`, null, {
       params: { sort_order: sortOrder },
     }),
+  delete: (id: string) => api.delete(`/collections/${id}`),
 }
 
 // Settings
@@ -97,12 +115,23 @@ export const novelsApi = {
   getProgress: (novelId: string) => api.get(`/novels/${novelId}/progress`),
   updateProgress: (novelId: string, data: { chapter_id: string; percentage: number; updated_at?: string }) =>
     api.put(`/novels/${novelId}/progress`, data),
+  upload: (form: FormData) => api.post('/novels/upload', form),
+  trash: () => api.get('/novels/trash'),
+  restore: (id: string) => api.patch(`/novels/${id}/restore`),
 }
 
 // Fonts
 export const fontsApi = {
   list: () => api.get('/fonts'),
+  upload: (form: FormData) => api.post('/fonts', form),
   delete: (id: string) => api.delete(`/fonts/${id}`),
+}
+
+// Admin
+export const adminApi = {
+  importPath: (data: { subpath: string; collection_name?: string; encoding?: string; encoding_errors?: string }) =>
+    api.post('/admin/import-path', data),
+  getImportProgress: (taskId: string) => api.get(`/admin/import-path/${taskId}`),
 }
 
 export default api

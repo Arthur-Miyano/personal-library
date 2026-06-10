@@ -1,6 +1,10 @@
+import logging
 import os
+import traceback
 import uuid as uuid_lib
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File, status
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -130,12 +134,13 @@ async def upload_novel(
             author=author, cover_path=cover_url,
             chapters_data=chapters_data,
         )
-    except Exception:
-        if os.path.exists(final_path):
-            os.unlink(final_path)
+    except Exception as e:
+        logger.error(f"小说入库失败: {traceback.format_exc()}")
+        # 文件已保存成功，不删除；只清理失败的封面
         if cover_local_path and os.path.exists(cover_local_path):
             os.unlink(cover_local_path)
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="数据库写入失败")
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                            detail=f"数据库写入失败: {str(e)[:200]}")
 
     return novel
 
@@ -216,11 +221,13 @@ async def permanently_delete_novel(
             os.unlink(file_path)
         except OSError:
             pass
-    if cover_path and os.path.exists(cover_path):
-        try:
-            os.unlink(cover_path)
-        except OSError:
-            pass
+    if cover_path:
+        local = os.path.join(settings.upload_dir, cover_path.replace("/uploads/", "", 1))
+        if os.path.exists(local):
+            try:
+                os.unlink(local)
+            except OSError:
+                pass
     return None
 
 
@@ -322,12 +329,8 @@ async def update_progress(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="小说不存在")
 
     result = await progress_repo.upsert(
-        db=db,
-        user_id=current_user.id,
-        novel_id=novel_id,
-        chapter_id=body.chapter_id,
-        percentage=body.percentage,
-        client_updated_at=body.updated_at,
+        db=db, user_id=current_user.id, novel_id=novel_id,
+        chapter_id=body.chapter_id, percentage=body.percentage,
     )
 
     if result is None:

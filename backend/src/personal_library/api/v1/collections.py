@@ -235,3 +235,22 @@ async def update_article_sort_in_collection(
             detail="该文章不在此收藏夹中"
         )
     return None
+
+
+@router.delete(
+    "/{collection_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+async def delete_collection(
+    collection_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """删除收藏夹"""
+    collection = await repo.get_by_id(db=db, collection_id=collection_id)
+    if not collection:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="收藏夹不存在")
+    if collection.user_id != current_user.id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="无权操作")
+    await repo.delete(db=db, collection=collection)
+    return None

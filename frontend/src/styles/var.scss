@@ -1,27 +1,79 @@
+/* ========== 沉浸式色彩矩阵 ========== */
 :root {
-  --el-color-primary: #4A6FA5;
-  --el-color-primary-light-3: #6B8CBF;
-  --el-color-primary-light-5: #8DA8D9;
-  --el-color-primary-light-7: #B0C4E3;
-  --el-color-primary-light-8: #D2E0ED;
-  --el-color-primary-light-9: #E9F0F8;
-
-  --el-color-success: #E8D9C4;
-  --el-color-warning: #E8C4A0;
-  --el-color-danger: #C48A8A;
-
-  --el-border-radius-base: 10px;
-  --el-border-radius-small: 8px;
-  --el-border-radius-large: 12px;
-
-  --el-font-size-primary: 16px;
-  --el-font-line-height-primary: 1.9;
+  --bg-base: #FDFBF7;
+  --bg-surface: #FFFFFF;
+  --text-main: #2C2421;
+  --text-muted: #8C7A76;
+  --primary: #C85D5D;
+  --primary-glow: rgba(200, 93, 93, 0.06);
+  --border: rgba(62, 41, 37, 0.08);
+  --radius: 12px;
+  --radius-lg: 16px;
+  --radius-pro: 14px;
+  --shadow-card: 0 4px 20px rgba(0, 0, 0, 0.04);
+  --shadow-hover: 0 16px 32px var(--primary-glow);
+  --font-sans: 'Inter', -apple-system, 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  --font-serif: 'Noto Serif SC', 'Source Han Serif SC', 'SimSun', 'STSong', serif;
+  --font-mono: 'JetBrains Mono', 'SF Mono', 'Consolas', monospace;
+  --sidebar-width: 240px;
 }
 
+/* 朱砂（默认） */
+:root[data-theme="cinnabar"] {
+  --bg-base: #FDFBF7; --bg-surface: #FFFFFF;
+  --text-main: #2C2421; --text-muted: #8C7A76;
+  --primary: #C85D5D; --primary-glow: rgba(200,93,93,0.06);
+  --border: rgba(62,41,37,0.08);
+}
+
+/* 青蓝 */
+:root[data-theme="azure"] {
+  --bg-base: #F4F7F9; --bg-surface: #FFFFFF;
+  --text-main: #2C3A47; --text-muted: #7A8B99;
+  --primary: #5A849B; --primary-glow: rgba(90,132,155,0.08);
+  --border: rgba(122,139,153,0.10);
+}
+
+/* 碧玉 */
+:root[data-theme="jade"] {
+  --bg-base: #F5F7F2; --bg-surface: #FFFFFF;
+  --text-main: #2A3B2C; --text-muted: #758A78;
+  --primary: #6A8D73; --primary-glow: rgba(106,141,115,0.08);
+  --border: rgba(117,138,120,0.10);
+}
+
+/* 墨色（暗模式） */
+:root[data-theme="ink"] {
+  --bg-base: #18191B; --bg-surface: #222427;
+  --text-main: #D1D5DB; --text-muted: #848A94;
+  --primary: #D4C4B7; --primary-glow: rgba(212,196,183,0.1);
+  --border: rgba(209,213,219,0.08);
+}
+
+/* 兼容旧版 dark class */
 .dark {
-  --el-bg-color: #1E2128;
-  --el-bg-color-page: #181A20;
-  --el-text-color-primary: #E9F0F8;
-  --el-text-color-regular: #D2E0ED;
-  --el-text-color-secondary: #8DA8D9;
+  --bg-base: #18191B; --bg-surface: #222427;
+  --text-main: #D1D5DB; --text-muted: #848A94;
+  --primary: #D4C4B7; --primary-glow: rgba(212,196,183,0.1);
+  --border: rgba(209,213,219,0.08);
+}
+
+/* Element Plus 变量覆盖 */
+:root {
+  --el-color-primary: #C85D5D;
+  --el-color-primary-light-3: #D87A7A;
+  --el-color-primary-light-5: #E8A0A0;
+  --el-color-primary-light-7: #F3C5C5;
+  --el-color-primary-light-9: #FBE8E8;
+  --el-border-radius-base: 10px;
+  --el-border-radius-small: 8px;
+  --el-bg-color: var(--bg-surface);
+  --el-bg-color-page: var(--bg-base);
+  --el-text-color-primary: var(--text-main);
+  --el-text-color-regular: var(--text-main);
+  --el-text-color-secondary: var(--text-muted);
+  --el-border-color: var(--border);
+  --el-border-color-lighter: var(--border);
+  --el-fill-color-light: rgba(62,41,37,0.04);
+  --el-bg-color-overlay: var(--bg-surface);
 }

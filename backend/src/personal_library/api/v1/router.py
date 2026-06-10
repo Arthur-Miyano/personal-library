@@ -7,6 +7,7 @@ from .settings import router as settings_router
 from .upload import router as upload_router
 from .novels import router as novels_router
 from .fonts import router as fonts_router
+from .admin import router as admin_router
 
 router = APIRouter(prefix="/api/v1")
 router.include_router(auth_router)
@@ -17,3 +18,4 @@ router.include_router(settings_router)
 router.include_router(upload_router)
 router.include_router(novels_router)
 router.include_router(fonts_router)
+router.include_router(admin_router)

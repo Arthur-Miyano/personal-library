@@ -22,6 +22,7 @@ class ChapterData:
 _CN_NUM = {
     "零": 0, "一": 1, "二": 2, "三": 3, "四": 4,
     "五": 5, "六": 6, "七": 7, "八": 8, "九": 9,
+    "两": 2,
     "十": 10, "百": 100, "千": 1000,
     "壹": 1, "贰": 2, "叁": 3, "肆": 4,
     "伍": 5, "陆": 6, "柒": 7, "捌": 8, "玖": 9,
@@ -132,9 +133,13 @@ def parse_chapters(text: str) -> list[ChapterData]:
 
         content_lines = lines[start_line:end_line]
         content = sanitize_html("\n".join(content_lines).strip())
+        if not content:
+            content = "\n"  # 空章节给占位符，避免位置约束冲突
 
         start_pos = line_offsets[start_line] if start_line < len(lines) else len(encoded)
         end_pos = line_offsets[end_line] if end_line < len(lines) else len(encoded)
+        if end_pos <= start_pos:
+            end_pos = start_pos + len(content.encode("utf-8"))
 
         chapters.append(ChapterData(
             chapter_number=cn,

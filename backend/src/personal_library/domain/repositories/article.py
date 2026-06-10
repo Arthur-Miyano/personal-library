@@ -17,6 +17,7 @@ class ArticleRepository:
         source_type: str = "paste",
         source_name: str | None = None,
         word_count: int | None = None,
+        content_hash: str = "",
     ) -> Article:
         """创建一篇文章并保存到数据库"""
         raw_text = sanitize_html(raw_text)
@@ -31,6 +32,7 @@ class ArticleRepository:
             source_type=source_type,
             source_name=source_name,
             word_count=word_count,
+            content_hash=content_hash,
         )
         db.add(article)
         await db.flush()
@@ -42,8 +44,12 @@ class ArticleRepository:
         db: AsyncSession,
         user_id: UUID,
         tag_id: UUID | None = None,
+        q: str | None = None,
+        collection_id: UUID | None = None,
     ) -> list[Article]:
-        """查询某个用户的所有文章（未删除的），可选按标签筛选"""
+        """查询某个用户的所有文章（未删除的），可选按标签/关键词/合集筛选"""
+        from sqlalchemy import or_
+
         stmt = (
             select(Article)
             .where(Article.user_id == user_id)
@@ -56,6 +62,20 @@ class ArticleRepository:
             stmt = stmt.join(
                 ArticleTag, Article.id == ArticleTag.article_id
             ).where(ArticleTag.tag_id == tag_id)
+
+        if q:
+            stmt = stmt.where(
+                or_(
+                    Article.title.ilike(f"%{q}%"),
+                    Article.raw_text.ilike(f"%{q}%"),
+                )
+            )
+
+        if collection_id is not None:
+            from personal_library.domain.models.collection import CollectionArticle
+            stmt = stmt.join(
+                CollectionArticle, Article.id == CollectionArticle.article_id
+            ).where(CollectionArticle.collection_id == collection_id)
 
         result = await db.execute(stmt)
         return result.scalars().all()
@@ -128,3 +148,42 @@ class ArticleRepository:
             article.raw_text = sanitize_html(raw_text)
             article.word_count = len(article.raw_text)
         await db.flush()
+
+    async def find_duplicate(
+        self, db: AsyncSession, user_id: UUID, content_hash: str,
+    ) -> Article | None:
+        if not content_hash:
+            return None
+        stmt = select(Article).where(
+            Article.user_id == user_id,
+            Article.content_hash == content_hash,
+            Article.is_deleted == False,
+        )
+        result = await db.execute(stmt)
+        return result.scalar_one_or_none()
+
+    async def create_dedup(
+        self, db: AsyncSession, user_id: UUID,
+        title: str, raw_text: str, content_hash: str,
+        source_type: str = "import", source_name: str | None = None,
+    ) -> tuple[bool, Article]:
+        if content_hash:
+            existing = await self.find_duplicate(db, user_id, content_hash)
+            if existing:
+                return (False, existing)
+        try:
+            article = Article(
+                title=title, raw_text=sanitize_html(raw_text), user_id=user_id,
+                source_type=source_type, source_name=source_name,
+                word_count=len(raw_text), content_hash=content_hash,
+            )
+            db.add(article)
+            await db.flush()
+            return (True, article)
+        except Exception:
+            await db.rollback()
+            if content_hash:
+                existing = await self.find_duplicate(db, user_id, content_hash)
+                if existing:
+                    return (False, existing)
+            raise

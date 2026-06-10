@@ -257,29 +257,30 @@ async def test_reading_progress_create_and_get(client):
 
 
 @pytest.mark.asyncio
-async def test_reading_progress_conflict(client):
-    """进度冲突（旧 updated_at）→ 409"""
+async def test_reading_progress_update(client):
+    """更新阅读进度应正常覆盖"""
     token = await register_and_login(client)
 
-    files = {"file": ("conflict.txt", io.BytesIO(SAMPLE_TXT.encode("utf-8")), "text/plain")}
+    files = {"file": ("prog2.txt", io.BytesIO(SAMPLE_TXT.encode("utf-8")), "text/plain")}
     resp = await client.post("/api/v1/novels/upload", files=files, headers={"Authorization": f"Bearer {token}"})
     novel_id = resp.json()["id"]
-    chapter_id = resp.json()["chapters"][1]["id"]
+    chapters = resp.json()["chapters"]
+    c1, c2 = chapters[1]["id"], chapters[2]["id"]
 
     # 首次创建
-    await client.put(
-        f"/api/v1/novels/{novel_id}/progress",
-        json={"chapter_id": chapter_id, "percentage": 10},
-        headers={"Authorization": f"Bearer {token}"}
-    )
+    await client.put(f"/api/v1/novels/{novel_id}/progress",
+        json={"chapter_id": c1, "percentage": 10}, headers={"Authorization": f"Bearer {token}"})
 
-    # 用旧的 updated_at 更新
-    response = await client.put(
-        f"/api/v1/novels/{novel_id}/progress",
-        json={"chapter_id": chapter_id, "percentage": 20, "updated_at": "2000-01-01T00:00:00"},
-        headers={"Authorization": f"Bearer {token}"}
-    )
-    assert response.status_code == 409
+    # 更新到新章节
+    response = await client.put(f"/api/v1/novels/{novel_id}/progress",
+        json={"chapter_id": c2, "percentage": 50}, headers={"Authorization": f"Bearer {token}"})
+    assert response.status_code == 200
+
+    # 验证更新后的值
+    get_resp = await client.get(f"/api/v1/novels/{novel_id}/progress", headers={"Authorization": f"Bearer {token}"})
+    data = get_resp.json()
+    assert data["chapter_id"] == c2
+    assert float(data["percentage"]) == pytest.approx(50)
 
 
 # ===== 权限隔离 =====

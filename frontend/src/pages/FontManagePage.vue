@@ -1,11 +1,13 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
+import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
+import { ArrowLeft } from '@element-plus/icons-vue'
 import { fontsApi } from '@/api'
 import type { UploadRawFile } from 'element-plus'
-import api from '@/api'
 
 interface FontItem { id: string; filename: string; font_family: string; file_size: number }
+const router = useRouter()
 const fonts = ref<FontItem[]>([])
 const uploading = ref(false)
 
@@ -19,7 +21,7 @@ async function handleUpload(rawFile: UploadRawFile) {
   try {
     const form = new FormData()
     form.append('file', rawFile)
-    const { data } = await api.post('/fonts', form, { headers: { 'Content-Type': 'multipart/form-data' } })
+    const { data } = await fontsApi.upload(form)
     fonts.value.unshift(data)
     ElMessage.success('字体上传成功')
   } catch { ElMessage.error('上传失败') }
@@ -39,7 +41,10 @@ function formatSize(bytes: number) { return (bytes / 1024).toFixed(1) + ' KB' }
 
 <template>
   <div class="font-page">
-    <h2>字体管理</h2>
+    <div class="page-header">
+      <el-icon @click="router.back()"><ArrowLeft /></el-icon>
+      <h2>字体管理</h2>
+    </div>
     <el-upload
       :show-file-list="false"
       :before-upload="(f: UploadRawFile) => { handleUpload(f); return false }"
@@ -62,7 +67,8 @@ function formatSize(bytes: number) { return (bytes / 1024).toFixed(1) + ' KB' }
 
 <style scoped>
 .font-page { padding: 12px 16px; }
-.font-page h2 { font-size: 20px; margin-bottom: 16px; display: flex; justify-content: space-between; align-items: center; }
+.page-header { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; }
+.page-header h2 { flex: 1; font-size: 20px; font-weight: 600; }
 .font-list { margin-top: 16px; }
 .font-item { display: flex; align-items: center; gap: 12px; }
 .family { font-size: 16px; font-weight: 500; flex: 1; }

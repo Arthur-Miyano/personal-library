@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { ElMessage } from 'element-plus'
 import api, { articlesApi } from '@/api'
 import { ArrowLeft, Upload } from '@element-plus/icons-vue'
 import type { UploadRawFile } from 'element-plus'
@@ -22,7 +23,7 @@ onMounted(async () => {
 })
 
 async function save() {
-  if (!title.value.trim()) return
+  if (!title.value.trim()) { ElMessage.warning('请输入标题'); return }
   saving.value = true
   try {
     if (articleId.value) {
@@ -33,6 +34,8 @@ async function save() {
       router.replace(`/editor?id=${data.id}`)
     }
     router.push(`/reader/${articleId.value}`)
+  } catch {
+    ElMessage.error('保存失败')
   } finally {
     saving.value = false
   }
@@ -43,9 +46,7 @@ async function handleFileUpload(rawFile: UploadRawFile) {
   try {
     const form = new FormData()
     form.append('file', rawFile)
-    const { data } = await api.post('/upload', form, {
-      headers: { 'Content-Type': 'multipart/form-data' },
-    })
+    const { data } = await api.post('/upload', form)
     articleId.value = data.id
     title.value = data.title
     rawText.value = data.raw_text

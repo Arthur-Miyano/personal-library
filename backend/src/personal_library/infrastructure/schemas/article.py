@@ -33,4 +33,5 @@ class ArticleResponse(BaseModel):
     user_id: UUID
     created_at: datetime
     updated_at: datetime
+    content_hash: str = ""
     tags: list[TagResponse] = []

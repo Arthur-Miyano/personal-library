@@ -40,14 +40,18 @@ async def create_article(
 )
 async def list_articles(
     tag_id: UUID | None = Query(None, description="按标签ID筛选文章"),
+    q: str | None = Query(None, description="搜索关键词，匹配标题和正文"),
+    collection_id: UUID | None = Query(None, description="按合集ID筛选"),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """查询当前用户所有的文章，可选按标签筛选"""
+    """查询当前用户所有的文章，可选按标签/关键词/合集筛选"""
     articles = await repo.list_by_user(
         db=db,
         user_id=current_user.id,
         tag_id=tag_id,
+        q=q,
+        collection_id=collection_id,
     )
     return articles
 
