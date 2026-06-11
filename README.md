@@ -1,5 +1,4 @@
-# 藏卷小筑 (Archive Core System v4.0)
-
+# 阅读器个人图书馆/1.0
 个人数字图书馆系统 — 文章管理、小说阅读、字体管理，三位一体。
 
 ## 技术栈
@@ -80,6 +79,10 @@ npm run dev                    # 默认 http://localhost:5173
 ```bash
 cd backend
 pytest tests/ -v
+<img width="2549" height="1403" alt="5794e350ac2c152510dbf833773b271b" src="https://github.com/user-attachments/assets/d6294acb-5c43-4477-9f03-ec211176a6fa" />
+
+
+
 ```
 
 ## 许可
