@@ -3,6 +3,7 @@ import { ref, onMounted } from 'vue'
 import { settingsApi, fontsApi, authApi } from '@/api'
 import type { UserSettings } from '@/types'
 import { inject } from 'vue'
+import { ElMessage } from 'element-plus'
 
 const router = inject('router')
 const changeTheme = inject<(t: string) => void>('changeTheme') || (() => {})
@@ -26,8 +27,12 @@ onMounted(async () => {
   isSuperuser.value = u.data.is_superuser
 })
 
-async function save(key: string, value: unknown) {
-  await settingsApi.update({ [key]: value })
+let debounceTimers: Record<string, ReturnType<typeof setTimeout>> = {}
+function save(key: string, value: unknown) {
+  clearTimeout(debounceTimers[key])
+  debounceTimers[key] = setTimeout(() => {
+    settingsApi.update({ [key]: value }).catch(() => {})
+  }, 500)
 }
 </script>
 
@@ -80,6 +85,13 @@ async function save(key: string, value: unknown) {
       </div>
 
       <div class="setting-row">
+        <span class="setting-label">段落间距</span>
+        <input type="range" :min="0" :max="48" step="4" :value="settings.paragraph_spacing"
+          @input="(e: any) => { settings.paragraph_spacing = +e.target.value; save('paragraph_spacing', +e.target.value) }" />
+        <span class="setting-value">{{ settings.paragraph_spacing }}px</span>
+      </div>
+
+      <div class="setting-row">
         <span class="setting-label">背景色</span>
         <input type="color" :value="settings.bg_color"
           @input="(e: any) => { settings.bg_color = e.target.value; save('bg_color', e.target.value) }" />
@@ -88,7 +100,7 @@ async function save(key: string, value: unknown) {
 
     <div v-if="isSuperuser" class="admin-section">
       <h3 class="section-title">管理功能</h3>
-      <button class="admin-btn" @click="alert('请在侧边栏账号面板中操作')">服务器导入</button>
+      <button class="admin-btn" @click="ElMessage.info('请在侧边栏账号面板中操作')">服务器导入</button>
     </div>
   </div>
 </template>

@@ -3,7 +3,7 @@ import pytest
 TEST_USER = {
     "username": "collectionuser",
     "email": "collectionuser@example.com",
-    "password": "testpassword123"
+    "password": "TestPass123!"
 }
 
 TEST_ARTICLE = {
@@ -54,15 +54,15 @@ async def test_list_collections(client):
     """创建收藏夹后，列表里应该能看到"""
     token = await register_and_login(client)
 
-    # 创建两个收藏夹
+    # 创建两个收藏夹（显式设置不同 sort_order 避免排序不确定性）
     await client.post(
         "/api/v1/collections",
-        json={"name": "收藏夹A"},
+        json={"name": "收藏夹A", "sort_order": 1},
         headers={"Authorization": f"Bearer {token}"}
     )
     await client.post(
         "/api/v1/collections",
-        json={"name": "收藏夹B"},
+        json={"name": "收藏夹B", "sort_order": 2},
         headers={"Authorization": f"Bearer {token}"}
     )
 
@@ -160,7 +160,7 @@ async def test_cannot_access_others_collection(client):
     user_b = {
         "username": "userb",
         "email": "userb@example.com",
-        "password": "testpassword123"
+        "password": "TestPass123!"
     }
     await client.post("/api/v1/auth/register", json=user_b)
     login_b = await client.post(

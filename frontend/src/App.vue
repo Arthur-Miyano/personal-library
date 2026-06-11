@@ -28,7 +28,7 @@ provide('changeTheme', changeTheme)
 provide('currentTheme', currentTheme)
 
 onMounted(() => {
-  // 2200ms 后触发开屏离场
+  store.fetchNickname()
   setTimeout(() => {
     splashLeaving.value = true
   }, 2200)

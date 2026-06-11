@@ -28,6 +28,12 @@ class User(Base, TimestampMixin):
         nullable=False,
     )
 
+    nickname: Mapped[str] = mapped_column(
+        String(100),
+        nullable=False,
+        default="",
+    )
+
     hashed_password: Mapped[str] = mapped_column(
         String(255),
         nullable=False,

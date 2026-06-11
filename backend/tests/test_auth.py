@@ -3,12 +3,12 @@ import pytest
 TEST_USER = {
     "username": "testuser",
     "email": "testuser@example.com",
-    "password": "testpassword123"
+    "password": "TestPass123!"
 }
 # 专门用于登录接口的请求体（没有email字段）
 LOGIN_USER = {
     "username": "testuser",
-    "password": "testpassword123"
+    "password": "TestPass123!"
      }
 
 

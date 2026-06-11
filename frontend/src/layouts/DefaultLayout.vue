@@ -28,6 +28,7 @@ const uploadTarget = ref<'article' | 'novel'>('article')
 const enableRetypeset = ref(true)
 const uploadDragover = ref(false)
 const uploadProgress = ref(false)
+const fabOpen = ref(false)
 const uploadError = ref('')
 
 // --- 删除状态 ---
@@ -64,7 +65,6 @@ async function loadShelves() {
 }
 
 const user = ref({
-  nickname: '书斋主人',
   avatar: 'https://api.dicebear.com/7.x/bottts-neutral/svg?seed=Felix',
   readingTime: 0,
 })
@@ -100,40 +100,86 @@ function rotateSecretKey() {
   setTimeout(() => { rotating.value = false }, 1800)
 }
 
+function openFabUpload(mode: 'batch-article' | 'single-article' | 'novel') {
+  fabOpen.value = false
+  uploadModal.value = true
+  uploadComplete.value = false
+  uploadDone.value = 0
+  uploadTotal.value = 0
+  uploadFailedNames.value = []
+  uploadError.value = ''
+  if (mode === 'batch-article') { uploadTarget.value = 'article'; uploadType.value = 'batch' }
+  else if (mode === 'single-article') { uploadTarget.value = 'article'; uploadType.value = 'single' }
+  else { uploadTarget.value = 'novel' }
+}
+
 function logout() { appStore.logout(); router.push('/login') }
 
 // 上传：核心上传逻辑，直接接受文件列表
+const uploadingFileNames = ref<string[]>([])
+const uploadDone = ref(0)
+const uploadTotal = ref(0)
+const uploadFailedNames = ref<string[]>([])
+const uploadComplete = ref(false)
+const CONCURRENCY = 3
+
 async function uploadFiles(files: FileList | File[]) {
+  const fileList = Array.from(files)
+  uploadTotal.value = fileList.length
+  uploadDone.value = 0
+  uploadComplete.value = false
+  uploadFailedNames.value = []
   uploadProgress.value = true
   uploadError.value = ''
 
-  try {
-    const fileList = Array.from(files)
-    if (uploadTarget.value === 'novel') {
-      for (const file of fileList) {
-        const form = new FormData()
-        form.append('file', file)
-        await api.post('/novels/upload', form)
+  // 文章批量导入：使用 /articles/batch-import，分批打包上传
+  if (uploadTarget.value === 'article' && uploadType.value === 'batch') {
+    for (let i = 0; i < fileList.length; i += CONCURRENCY) {
+      const batch = fileList.slice(i, i + CONCURRENCY)
+      uploadingFileNames.value = batch.map(f => f.name)
+      const form = new FormData()
+      for (const file of batch) {
+        form.append('files', file)
       }
-      router.push('/novels')
-    } else {
-      for (const file of fileList) {
-        const form = new FormData()
-        form.append('file', file)
-        await api.post('/upload', form, {
-          headers: { 'Content-Type': 'multipart/form-data' },
-        })
+      if (enableRetypeset.value) form.append('cleanup', 'true')
+      try {
+        const { data } = await api.post('/articles/batch-import', form, { timeout: 120000 })
+        uploadDone.value += data.success + data.duplicate
+        for (const r of data.results) {
+          if (r.status === 'failed') uploadFailedNames.value.push(r.filename)
+        }
+      } catch (e: unknown) {
+        for (const f of batch) uploadFailedNames.value.push(f.name)
       }
-      await articleStore.fetchArticles()
     }
-    uploadModal.value = false
-  } catch (e: unknown) {
-    const err = e as any
-    const detail = err?.response?.data?.detail || err?.message || '上传失败，请检查文件格式和大小'
-    uploadError.value = `${detail}`
-  } finally {
     uploadProgress.value = false
+    uploadComplete.value = true
+    return
   }
+
+  // 文章单篇 / 小说：逐个上传
+  for (let i = 0; i < fileList.length; i += CONCURRENCY) {
+    const batch = fileList.slice(i, i + CONCURRENCY)
+    uploadingFileNames.value = batch.map(f => f.name)
+
+    const results = await Promise.allSettled(
+      batch.map(file => {
+        const endpoint = uploadTarget.value === 'novel' ? '/novels/upload' : '/upload'
+        const form = new FormData()
+        form.append('file', file)
+        if (enableRetypeset.value) form.append('cleanup', 'true')
+        return api.post(endpoint, form, { timeout: 120000 })
+      }),
+    )
+    for (let j = 0; j < results.length; j++) {
+      if (results[j].status === 'fulfilled') uploadDone.value++
+      else uploadFailedNames.value.push(batch[j].name)
+    }
+  }
+
+  uploadProgress.value = false
+  uploadComplete.value = true
+  // 不关闭弹窗 — 让用户看到结果
 }
 
 function onFileInputChange(e: Event) {
@@ -151,9 +197,48 @@ function onUploadDragOver(e: DragEvent) {
 function onUploadDragLeave() {
   uploadDragover.value = false
 }
-function onUploadDrop(e: DragEvent) {
+
+// 递归读取文件夹内容（拖拽文件夹支持）
+async function readEntry(entry: any): Promise<File[]> {
+  if (entry.isFile) {
+    return new Promise((resolve) => {
+      entry.file((file: File) => resolve([file]), () => resolve([]))
+    })
+  }
+  if (entry.isDirectory) {
+    const reader = entry.createReader()
+    const files: File[] = []
+    const readBatch = (): Promise<void> => new Promise((resolve) => {
+      reader.readEntries(async (entries: any[]) => {
+        if (entries.length === 0) { resolve(); return }
+        for (const e of entries) {
+          files.push(...await readEntry(e))
+        }
+        // 需要继续读取直到返回空数组（Chrome 每次最多 100 条）
+        await readBatch()
+        resolve()
+      }, () => resolve())
+    })
+    await readBatch()
+    return files
+  }
+  return []
+}
+
+async function onUploadDrop(e: DragEvent) {
   e.preventDefault()
   uploadDragover.value = false
+  const items = e.dataTransfer?.items
+  if (items && items.length > 0 && (items[0] as any).webkitGetAsEntry) {
+    const files: File[] = []
+    for (let i = 0; i < items.length; i++) {
+      const entry = (items[i] as any).webkitGetAsEntry()
+      if (entry) files.push(...await readEntry(entry))
+    }
+    if (files.length > 0) uploadFiles(files)
+    return
+  }
+  // 降级：直接用 files
   if (e.dataTransfer?.files && e.dataTransfer.files.length > 0) {
     uploadFiles(e.dataTransfer.files)
   }
@@ -218,7 +303,7 @@ onUnmounted(() => { if (timer) clearInterval(timer) })
               <img :src="user.avatar" class="user-img" alt="avatar" />
             </div>
             <div class="user-info">
-              <span class="user-name">{{ user.nickname }}</span>
+              <span class="user-name">{{ appStore.nickname || appStore.username || '书斋主人' }}</span>
               <span class="user-role">书斋主人</span>
             </div>
             <svg class="user-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
@@ -269,18 +354,32 @@ onUnmounted(() => { if (timer) clearInterval(timer) })
         </router-view>
       </div>
 
-      <!-- ====== 双轨浮动按钮 ====== -->
-      <div class="dual-fab">
-        <button class="fab-pill fab-delete" @click="router.push('/trash')" title="回收站">
-          <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
-            <polyline points="3 6 5 6 21 6" /><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
-          </svg>
-        </button>
-
-        <button class="fab-pill fab-upload" @click="uploadModal = true" title="上传">
-          <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
-            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="17 8 12 3 7 8" /><line x1="12" y1="3" x2="12" y2="15" />
-          </svg>
+      <!-- ====== FAB 可展开菜单 ====== -->
+      <div class="fab-zone" @click.stop>
+        <Transition name="fab-scale">
+          <div v-if="fabOpen" class="fab-menu">
+            <div class="fab-item" @click="openFabUpload('batch-article')">
+              <span class="fab-label">批量导入文章</span>
+              <div class="fab-icon" :style="{ backgroundColor: 'var(--primary)' }">
+                <svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="1.5"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="18" x2="12" y2="12"/><line x1="9" y1="15" x2="15" y2="15"/></svg>
+              </div>
+            </div>
+            <div class="fab-item" @click="openFabUpload('single-article')">
+              <span class="fab-label">新建文章</span>
+              <div class="fab-icon" :style="{ backgroundColor: 'var(--primary)' }">
+                <svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="1.5"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+              </div>
+            </div>
+            <div class="fab-item" @click="openFabUpload('novel')">
+              <span class="fab-label">导入小说</span>
+              <div class="fab-icon" :style="{ backgroundColor: 'var(--primary)' }">
+                <svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="1.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+              </div>
+            </div>
+          </div>
+        </Transition>
+        <button class="fab-btn" :class="{ rotated: fabOpen }" :style="{ backgroundColor: 'var(--primary)' }" @click="fabOpen = !fabOpen">
+          <svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>
         </button>
       </div>
 
@@ -326,7 +425,8 @@ onUnmounted(() => { if (timer) clearInterval(timer) })
               @drop="onUploadDrop"
             >
               <template v-if="uploadProgress">
-                <span class="upload-zone-text">正在上传中...</span>
+                <span class="upload-zone-text">{{ uploadDone }}/{{ uploadTotal }} 完成</span>
+                <span class="upload-zone-hint">正在上传: {{ uploadingFileNames.join('、') }}</span>
               </template>
               <template v-else-if="uploadError">
                 <span class="upload-zone-text" style="color: #DC2626;">{{ uploadError }}</span>
@@ -348,24 +448,38 @@ onUnmounted(() => { if (timer) clearInterval(timer) })
                   {{ uploadTarget === 'novel' ? '点击选择或拖拽 TXT / EPUB 小说文件' : '点击选择或拖拽文件批量导入' }}
                 </span>
                 <span class="upload-zone-hint">
-                  {{ uploadTarget === 'novel' ? '支持 .txt .epub .pdf' : '支持 .txt .md .html .epub .pdf .docx' }}
+                  {{ uploadTarget === 'novel' ? '支持 .txt .epub .pdf（可拖拽文件夹）' : '支持 .txt .md .html .epub .pdf .docx（可拖拽文件夹）' }}
                 </span>
               </template>
             </div>
 
-            <div v-if="uploadTarget === 'novel'" class="upload-typeset">
+            <!-- 排版开关：小说 + 文章批量 -->
+            <div v-if="uploadTarget === 'novel' || (uploadTarget === 'article' && uploadType === 'batch')" class="upload-typeset">
               <div class="typeset-info">
-                <span class="typeset-label">智能排版与正文提纯</span>
-                <span class="typeset-desc">自动识别并删除广告、推广行与错乱空行</span>
+                <span class="typeset-label">{{ uploadTarget === 'novel' ? '智能排版与正文提纯' : '去除非正文内容' }}</span>
+                <span class="typeset-desc">{{ uploadTarget === 'novel' ? '自动识别并删除广告、推广行与错乱空行' : '合并多余空行、移除纯符号装饰线' }}</span>
               </div>
               <input type="checkbox" v-model="enableRetypeset" class="typeset-check" />
             </div>
 
+            <!-- 上传完成结果 -->
+            <div v-if="uploadComplete" class="upload-result">
+              <div class="upload-result-title">{{ uploadDone }}/{{ uploadTotal }} 导入成功</div>
+              <div v-if="uploadFailedNames.length" class="upload-result-fail">
+                <span>失败 {{ uploadFailedNames.length }} 个：</span>
+                <span v-for="n in uploadFailedNames" :key="n" class="upload-fail-name">{{ n }}</span>
+              </div>
+            </div>
+
             <div class="modal-actions">
-              <button @click="uploadModal = false; uploadError = ''" class="btn-cancel">取消</button>
+              <template v-if="uploadComplete">
+                <button v-if="uploadTarget === 'novel'" @click="uploadModal = false; router.push('/novels')" class="btn-primary">查看小说</button>
+                <button v-else @click="uploadModal = false; articleStore.fetchArticles()" class="btn-primary">完成</button>
+              </template>
+              <button v-else @click="uploadModal = false; uploadError = ''" class="btn-cancel">取消</button>
               <button
-                v-if="uploadTarget === 'article' && uploadType === 'single'"
-                @click="triggerUpload"
+                v-if="uploadTarget === 'article' && uploadType === 'single' && !uploadComplete"
+                @click="uploadModal = false; router.push('/editor')"
                 class="btn-primary"
               >开始编写</button>
             </div>
@@ -433,7 +547,9 @@ onUnmounted(() => { if (timer) clearInterval(timer) })
             <!-- 昵称 -->
             <div class="profile-field">
               <label class="profile-label">昵称</label>
-              <input v-model="user.nickname" class="profile-input" placeholder="书斋主人" />
+              <input :value="appStore.nickname || appStore.username || '书斋主人'"
+                @change="appStore.updateNickname(($event.target as HTMLInputElement).value)"
+                class="profile-input" placeholder="书斋主人" />
             </div>
 
             <!-- 密钥状态 -->
@@ -477,7 +593,7 @@ onUnmounted(() => { if (timer) clearInterval(timer) })
 
 <style scoped>
 /* ======================================== 布局 ======================================== */
-.app-layout { display: flex; min-height: 100vh; background: #FDFBF7; }
+.app-layout { display: flex; min-height: 100vh; background: var(--bg-base); }
 
 /* ======================================== 侧边栏 ======================================== */
 .sidebar {
@@ -487,7 +603,7 @@ onUnmounted(() => { if (timer) clearInterval(timer) })
 }
 .sidebar-pad { display: flex; flex-direction: column; height: 100%; padding: 32px 12px; }
 .logo-row { display: flex; align-items: center; gap: 10px; padding: 0 12px 24px; border-bottom: 1px solid rgba(0,0,0,0.05); margin-bottom: 16px; }
-.logo-dot { width: 14px; height: 14px; background: #C85D5D; border-radius: 2px; flex-shrink: 0; }
+.logo-dot { width: 14px; height: 14px; background: var(--primary); border-radius: 2px; flex-shrink: 0; }
 .logo-text { font-family: var(--font-serif); font-weight: 900; font-size: 12px; color: #2C2421; letter-spacing: 0.2em; text-transform: uppercase; }
 
 /* 导航 */
@@ -497,8 +613,8 @@ onUnmounted(() => { if (timer) clearInterval(timer) })
   cursor: pointer; color: #8C7A76; transition: all 0.2s; position: relative;
 }
 .nav-item:hover { background: rgba(0,0,0,0.03); color: #2C2421; }
-.nav-item.active { background: #FDFBF7; color: #2C2421; font-weight: 600; }
-.nav-bar { position: absolute; left: 0; top: 6px; bottom: 6px; width: 2px; background: #C85D5D; border-radius: 2px; }
+.nav-item.active { background: var(--bg-base); color: #2C2421; font-weight: 600; }
+.nav-bar { position: absolute; left: 0; top: 6px; bottom: 6px; width: 2px; background: var(--primary); border-radius: 2px; }
 .nav-svg { width: 16px; height: 16px; flex-shrink: 0; }
 .nav-label { font-size: 13px; letter-spacing: 0.03em; flex: 1; }
 .nav-idx { font-size: 9px; font-family: var(--font-mono); opacity: 0.4; }
@@ -514,7 +630,7 @@ onUnmounted(() => { if (timer) clearInterval(timer) })
   display: flex; align-items: center; justify-content: space-between; transition: all 0.15s;
 }
 .shelf-item:hover { background: rgba(0,0,0,0.03); color: #2C2421; }
-.shelf-item.active { background: #FDFBF7; color: #C85D5D; font-weight: 600; }
+.shelf-item.active { background: var(--bg-base); color: #C85D5D; font-weight: 600; }
 .shelf-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
 .shelf-count {
   font-size: 9px; font-family: var(--font-mono); background: #FAFAFA;
@@ -550,7 +666,7 @@ onUnmounted(() => { if (timer) clearInterval(timer) })
 .active-tag-indicator { display: flex; align-items: center; gap: 6px; margin-top: 4px; font-size: 10px; color: var(--text-muted); }
 .active-tag-chip {
   display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: 4px;
-  font-family: var(--font-mono); font-size: 10px; background: #C85D5D; color: #fff;
+  font-family: var(--font-mono); font-size: 10px; background: var(--primary); color: #fff;
 }
 .tag-close-icon { width: 10px; height: 10px; cursor: pointer; opacity: 0.7; }
 .tag-close-icon:hover { opacity: 1; }
@@ -564,7 +680,7 @@ onUnmounted(() => { if (timer) clearInterval(timer) })
 .top-search-icon { position: absolute; left: 14px; top: 50%; transform: translateY(-50%); width: 14px; height: 14px; color: #8C7A76; }
 .top-search-input {
   width: 190px; padding: 8px 14px 8px 38px; border-radius: 20px;
-  border: 1px solid rgba(0,0,0,0.08); background: #FDFBF7;
+  border: 1px solid rgba(0,0,0,0.08); background: var(--bg-base);
   color: #2C2421; font-size: 12px; outline: none; font-family: var(--font-mono);
   transition: all 0.3s;
 }
@@ -573,6 +689,38 @@ onUnmounted(() => { if (timer) clearInterval(timer) })
 .content-scroll { flex: 1; overflow-y: auto; }
 
 /* ======================================== 双轨 FAB ======================================== */
+/* ====== FAB ====== */
+.fab-zone { position: fixed; bottom: 32px; right: 32px; z-index: 40; display: flex; flex-direction: column-reverse; align-items: flex-end; gap: 10px; }
+.fab-menu { display: flex; flex-direction: column-reverse; gap: 10px; margin-bottom: 4px; }
+.fab-item {
+  display: flex; align-items: center; gap: 12px; padding: 6px 6px 6px 16px;
+  background: var(--bg-surface); border: 1px solid var(--border);
+  border-radius: 24px; cursor: pointer; box-shadow: 0 4px 16px rgba(0,0,0,0.06);
+  transition: all 0.2s;
+}
+.fab-item:hover { transform: scale(1.03); }
+.fab-label { font-size: 12px; color: var(--text-muted); white-space: nowrap; letter-spacing: 0.03em; }
+.fab-icon {
+  width: 32px; height: 32px; border-radius: 50%; display: flex;
+  align-items: center; justify-content: center; flex-shrink: 0;
+}
+.fab-icon svg { width: 14px; height: 14px; }
+.fab-btn {
+  width: 48px; height: 48px; border-radius: 50%; border: none;
+  color: white; cursor: pointer; display: flex; align-items: center; justify-content: center;
+  box-shadow: 0 8px 24px var(--primary-glow); transition: all 0.3s;
+}
+.fab-btn:hover { transform: scale(1.05); }
+.fab-btn svg { width: 20px; height: 20px; }
+.fab-btn.rotated svg { transform: rotate(45deg); }
+
+/* ====== 上传结果 ====== */
+.upload-result { margin: 12px 0; padding: 14px; border-radius: 10px; background: rgba(16,185,129,0.06); border: 1px solid rgba(16,185,129,0.15); }
+.upload-result-title { font-size: 14px; font-weight: 700; color: #059669; }
+.upload-result-fail { margin-top: 8px; font-size: 11px; color: #DC2626; }
+.upload-fail-name { display: block; font-size: 10px; color: var(--text-muted); margin-top: 2px; }
+
+/* old dual-fab — removed */
 .dual-fab {
   position: fixed; bottom: 32px; right: 32px; z-index: 40;
   display: flex; align-items: center; gap: 10px;
@@ -583,7 +731,7 @@ onUnmounted(() => { if (timer) clearInterval(timer) })
 .fab-pill:active { transform: scale(0.95); }
 .fab-delete { background: #FEF2F2; color: #DC2626; }
 .fab-delete:hover { background: #FEE2E2; }
-.fab-upload { background: #C85D5D; color: #fff; box-shadow: 0 4px 12px rgba(200,93,93,0.2); }
+.fab-upload { background: var(--primary); color: #fff; box-shadow: 0 4px 12px rgba(200,93,93,0.2); }
 .fab-upload:hover { background: #B04F4F; }
 
 /* ======================================== 对话框 ======================================== */
@@ -603,21 +751,21 @@ onUnmounted(() => { if (timer) clearInterval(timer) })
 .modal-actions { display: flex; justify-content: flex-end; gap: 10px; padding-top: 18px; }
 
 .btn-cancel { padding: 8px 18px; border-radius: 10px; border: 1px solid rgba(0,0,0,0.08); background: #F5F5F5; color: #666; font-size: 12px; cursor: pointer; }
-.btn-primary { padding: 8px 18px; border-radius: 10px; border: none; background: #C85D5D; color: #fff; font-size: 12px; font-weight: 700; cursor: pointer; }
+.btn-primary { padding: 8px 18px; border-radius: 10px; border: none; background: var(--primary); color: #fff; font-size: 12px; font-weight: 700; cursor: pointer; }
 .btn-primary:hover { background: #B04F4F; }
 .btn-danger { padding: 8px 18px; border-radius: 10px; border: none; background: #DC2626; color: #fff; font-size: 12px; font-weight: 700; cursor: pointer; }
 .btn-danger:hover { background: #B91C1C; }
 
 /* 上传 */
-.upload-tab-group { display: flex; background: #FDFBF7; border: 1px solid rgba(0,0,0,0.08); border-radius: 10px; padding: 3px; margin-bottom: 14px; }
+.upload-tab-group { display: flex; background: var(--bg-base); border: 1px solid rgba(0,0,0,0.08); border-radius: 10px; padding: 3px; margin-bottom: 14px; }
 .upload-tab, .upload-tab-active { flex: 1; padding: 8px; border-radius: 8px; border: none; font-size: 12px; cursor: pointer; transition: all 0.2s; background: transparent; color: #A0A0A0; }
 .upload-tab-active { background: #fff; color: #2C2421; font-weight: 700; box-shadow: 0 1px 2px rgba(0,0,0,0.04); }
 .upload-zone {
   border: 2px dashed rgba(0,0,0,0.1); border-radius: 12px; padding: 28px;
   text-align: center; background: rgba(253,251,247,0.3); margin-bottom: 14px;
   transition: border-color 0.2s;
+  cursor: pointer; position: relative;
 }
-.upload-zone { cursor: pointer; position: relative; }
 .upload-zone:hover { border-color: #C85D5D; }
 .upload-zone-active { border-color: #C85D5D; background: rgba(200,93,93,0.04); }
 .upload-file-input {
@@ -628,7 +776,7 @@ onUnmounted(() => { if (timer) clearInterval(timer) })
 .upload-zone-hint { font-size: 10px; font-family: var(--font-mono); color: #A0A0A0; display: block; margin-top: 6px; }
 .upload-typeset {
   display: flex; align-items: center; justify-content: space-between;
-  padding: 14px; border-radius: 10px; background: #FDFBF7; border: 1px solid rgba(0,0,0,0.05);
+  padding: 14px; border-radius: 10px; background: var(--bg-base); border: 1px solid rgba(0,0,0,0.05);
 }
 .typeset-label { font-size: 12px; font-weight: 700; color: #2C2421; display: block; }
 .typeset-desc { font-size: 10px; color: #8C7A76; margin-top: 2px; }
@@ -638,7 +786,7 @@ onUnmounted(() => { if (timer) clearInterval(timer) })
 .delete-body { margin-bottom: 4px; }
 .delete-label { font-size: 10px; font-family: var(--font-mono); color: #8C7A76; text-transform: uppercase; display: block; margin-bottom: 8px; }
 .delete-select {
-  width: 100%; background: #FDFBF7; border: 1px solid rgba(0,0,0,0.05);
+  width: 100%; background: var(--bg-base); border: 1px solid rgba(0,0,0,0.05);
   border-radius: 10px; padding: 12px; font-size: 12px; outline: none; color: #2C2421; margin-bottom: 14px;
 }
 .delete-warn {
@@ -666,13 +814,13 @@ onUnmounted(() => { if (timer) clearInterval(timer) })
 .q-avatar-img { width: 100%; display: block; border-radius: 6px; }
 .profile-field { margin-bottom: 18px; }
 .profile-input {
-  width: 100%; background: #FDFBF7; border: 1px solid rgba(0,0,0,0.08);
+  width: 100%; background: var(--bg-base); border: 1px solid rgba(0,0,0,0.08);
   border-radius: 10px; padding: 10px 14px; font-size: 13px; font-weight: 600;
   color: #2C2421; outline: none; transition: border-color 0.2s;
 }
 .profile-input:focus { border-color: #C85D5D; }
 
-.profile-key { padding: 14px; border: 1px solid rgba(0,0,0,0.05); border-radius: 10px; background: #FDFBF7; margin-bottom: 18px; }
+.profile-key { padding: 14px; border: 1px solid rgba(0,0,0,0.05); border-radius: 10px; background: var(--bg-base); margin-bottom: 18px; }
 .ac-key-row { display: flex; align-items: center; gap: 8px; font-size: 11px; font-weight: 500; color: #2C2421; margin-bottom: 6px; }
 .ac-key-row svg { width: 14px; height: 14px; flex-shrink: 0; }
 .ac-key-desc { font-size: 10px; color: #8C7A76; margin-bottom: 10px; }
@@ -699,6 +847,8 @@ onUnmounted(() => { if (timer) clearInterval(timer) })
 /* ======================================== 动画 ======================================== */
 .slide-right-enter-active, .slide-right-leave-active { transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1); }
 .slide-right-enter-from, .slide-right-leave-to { transform: translateX(100%); opacity: 0; }
+.fab-scale-enter-active, .fab-scale-leave-active { transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1); }
+.fab-scale-enter-from, .fab-scale-leave-to { opacity: 0; transform: translateY(15px) scale(0.85); }
 .fade-enter-active, .fade-leave-active { transition: opacity 0.3s; }
 .fade-enter-from, .fade-leave-to { opacity: 0; }
 .modal-enter-active, .modal-leave-active { transition: opacity 0.3s; }

@@ -1,8 +1,12 @@
+import logging
+import uuid as uuid_lib
 from contextlib import asynccontextmanager
 
 import os
 
 from fastapi import FastAPI, status
+
+logger = logging.getLogger(__name__)
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.requests import Request
 from fastapi.responses import JSONResponse
@@ -78,8 +82,13 @@ async def validation_error_handler(request: Request, exc: ValidationError):
 
 @app.exception_handler(Exception)
 async def generic_exception_handler(request: Request, exc: Exception):
-    """兜底异常处理器"""
+    """兜底异常处理器，记录完整堆栈用于排查"""
+    error_id = str(uuid_lib.uuid4())[:8]
+    logger.exception(
+        "未捕获异常 [error_id=%s]: %s | %s %s",
+        error_id, str(exc), request.method, request.url.path,
+    )
     return JSONResponse(
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-        content={"detail": "服务器内部错误"},
+        content={"detail": "服务器内部错误", "error_id": error_id},
     )

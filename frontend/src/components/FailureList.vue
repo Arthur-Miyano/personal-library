@@ -1,5 +1,7 @@
 <script setup lang="ts">
-defineProps<{ items: { name: string; reason: string }[] }>()
+const props = withDefaults(defineProps<{ items?: { name: string; reason: string }[] }>(), {
+  items: () => [],
+})
 </script>
 
 <template>

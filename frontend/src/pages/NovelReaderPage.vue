@@ -1,10 +1,11 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { novelsApi } from '@/api'
 import type { Novel, Chapter, ReadingProgress } from '@/types'
 import { ArrowLeft } from '@element-plus/icons-vue'
+import DOMPurify from 'dompurify'
 import FindReplaceDialog from '@/components/FindReplaceDialog.vue'
 
 const route = useRoute()
@@ -19,6 +20,11 @@ const editMode = ref(false)
 const editContent = ref('')
 const findVisible = ref(false)
 const saving = ref(false)
+
+const sanitizedContent = computed(() => {
+  const html = chapter.value?.content?.replace(/\n/g, '<br>') || ''
+  return DOMPurify.sanitize(html)
+})
 
 onMounted(async () => {
   const { data: n } = await novelsApi.get(novelId)
@@ -95,7 +101,7 @@ function currentIndex() { return chapter.value ? chapters.value.findIndex(c => c
 
     <div v-if="chapter" class="chapter-content" :style="{ maxWidth: '780px', margin: '0 auto' }">
       <h2 class="chapter-title">{{ chapter.title }}</h2>
-      <div v-if="!editMode" class="content" v-html="chapter.content?.replace(/\n/g, '<br>')"></div>
+      <div v-if="!editMode" class="content" v-html="sanitizedContent"></div>
       <el-input v-else v-model="editContent" type="textarea" :autosize="{ minRows: 15 }" resize="none" />
 
       <div class="nav">

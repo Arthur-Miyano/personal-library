@@ -41,6 +41,7 @@ class NovelRepository:
                 chapter = Chapter(
                     novel_id=novel.id,
                     chapter_number=cd.chapter_number,
+                    suffix=cd.suffix,
                     title=cd.title,
                     content=cd.content,
                     word_count=cd.word_count,
@@ -145,9 +146,14 @@ class NovelRepository:
         chapter_id: uuid.UUID,
         novel_id: uuid.UUID,
     ) -> Chapter | None:
-        stmt = select(Chapter).where(
-            Chapter.id == chapter_id,
-            Chapter.novel_id == novel_id,
+        stmt = (
+            select(Chapter)
+            .join(Novel, Chapter.novel_id == Novel.id)
+            .where(
+                Chapter.id == chapter_id,
+                Chapter.novel_id == novel_id,
+                Novel.is_deleted == False,
+            )
         )
         result = await db.execute(stmt)
         return result.scalar_one_or_none()

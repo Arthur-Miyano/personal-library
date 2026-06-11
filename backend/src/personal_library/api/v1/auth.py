@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, Request, status, Form
+from pydantic import BaseModel
 from sqlalchemy import select, exists
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -87,6 +88,52 @@ async def login(
 async def me(current_user: User = Depends(get_current_user)):
     """获取当前登录用户的详细信息"""
     return current_user
+
+
+class ProfileResponse(BaseModel):
+    nickname: str = ""
+    article_count: int = 0
+    total_words: int = 0
+
+class ProfileUpdate(BaseModel):
+    nickname: str | None = None
+
+
+@router.get("/profile", response_model=ProfileResponse)
+async def get_profile(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """获取当前用户的 profile（昵称 + 统计数据）"""
+    from sqlalchemy import func
+    from personal_library.domain.models.article import Article
+    count_stmt = select(func.count()).select_from(Article).where(
+        Article.user_id == current_user.id, Article.is_deleted == False
+    )
+    article_count = await db.scalar(count_stmt) or 0
+    words_stmt = select(func.coalesce(func.sum(Article.word_count), 0)).where(
+        Article.user_id == current_user.id, Article.is_deleted == False
+    )
+    total_words = await db.scalar(words_stmt) or 0
+    return ProfileResponse(
+        nickname=current_user.nickname or "",
+        article_count=article_count,
+        total_words=total_words,
+    )
+
+
+@router.patch("/profile", response_model=ProfileResponse)
+async def update_profile(
+    body: ProfileUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """更新当前用户的 profile"""
+    if body.nickname is not None:
+        current_user.nickname = body.nickname.strip()
+        await db.flush()
+        await db.commit()
+    return ProfileResponse(nickname=current_user.nickname or "")
 
 
 @router.post("/refresh", response_model=TokenResponse)

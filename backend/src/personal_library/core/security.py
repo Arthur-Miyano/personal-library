@@ -24,7 +24,7 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
     )
 def create_access_token(subject: str) -> str:
     """创建 JWT access token，subject 为用户 ID (UUID 字符串)"""
-    expire_time = datetime.now(timezone.utc) + timedelta(minutes=30)
+    expire_time = datetime.now(timezone.utc) + timedelta(minutes=settings.jwt_access_expire_minutes)
     payload = {
         "sub": subject,
         "exp": expire_time,

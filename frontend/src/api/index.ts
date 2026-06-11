@@ -11,31 +11,43 @@ api.interceptors.request.use((config) => {
   return config
 })
 
-let isRefreshing = false
-let refreshPromise: Promise<unknown> | null = null
+let refreshPromise: Promise<string> | null = null
 
 api.interceptors.response.use(
   (res) => res,
   async (err) => {
+    const originalRequest = err.config
+    if (!originalRequest) return Promise.reject(err)
+
     if (err.response?.status === 401) {
-      const url = err.config?.url || ''
-      if (url.includes('/auth/login') || url.includes('/auth/register') || url.includes('/auth/token') || url.includes('/auth/refresh')) {
+      const url = originalRequest.url || ''
+      if (['/auth/login', '/auth/register', '/auth/token', '/auth/refresh'].some(p => url.includes(p))) {
         return Promise.reject(err)
       }
-      if (!isRefreshing) {
-        isRefreshing = true
-        refreshPromise = authApi.refresh().then(r => {
-          localStorage.setItem('token', r.data.access_token)
-          return r.data.access_token
-        }).finally(() => { isRefreshing = false; refreshPromise = null })
+
+      if (!refreshPromise) {
+        refreshPromise = authApi.refresh()
+          .then((r) => {
+            const token = r.data.access_token as string
+            localStorage.setItem('token', token)
+            return token
+          })
+          .catch((refreshErr) => {
+            localStorage.removeItem('token')
+            window.location.replace('/login')
+            throw refreshErr
+          })
+          .finally(() => {
+            refreshPromise = null
+          })
       }
+
       try {
         const newToken = await refreshPromise
-        err.config.headers.Authorization = `Bearer ${newToken}`
-        return api(err.config)
+        originalRequest.headers.Authorization = `Bearer ${newToken}`
+        return api(originalRequest)
       } catch {
-        localStorage.removeItem('token')
-        window.location.href = '/login'
+        return Promise.reject(err)
       }
     }
     return Promise.reject(err)
@@ -50,6 +62,8 @@ export const authApi = {
     api.post('/auth/login', data),
   me: () => api.get('/auth/me'),
   refresh: () => api.post('/auth/refresh'),
+  getProfile: () => api.get('/auth/profile'),
+  updateProfile: (data: { nickname?: string }) => api.patch('/auth/profile', data),
 }
 
 // Articles
@@ -67,6 +81,10 @@ export const articlesApi = {
     api.post(`/articles/${articleId}/tags/${tagId}`),
   removeTag: (articleId: string, tagId: string) =>
     api.delete(`/articles/${articleId}/tags/${tagId}`),
+  batchAddTag: (data: { article_ids: string[]; tag_id: string }) =>
+    api.post('/articles/batch-tag', data),
+  batchSetTags: (articleId: string, data: { tag_ids: string[] }) =>
+    api.post(`/articles/${articleId}/tags/batch`, data),
 }
 
 // Tags
@@ -92,6 +110,10 @@ export const collectionsApi = {
     api.patch(`/collections/${collectionId}/articles/${articleId}/sort`, null, {
       params: { sort_order: sortOrder },
     }),
+  batchAddArticles: (collectionId: string, data: { article_ids: string[] }) =>
+    api.post(`/collections/${collectionId}/articles/batch`, data),
+  moveArticle: (collectionId: string, articleId: string, direction: 'up' | 'down') =>
+    api.post(`/collections/${collectionId}/articles/${articleId}/move`, { direction }),
   delete: (id: string) => api.delete(`/collections/${id}`),
 }
 
@@ -115,9 +137,11 @@ export const novelsApi = {
   getProgress: (novelId: string) => api.get(`/novels/${novelId}/progress`),
   updateProgress: (novelId: string, data: { chapter_id: string; percentage: number; updated_at?: string }) =>
     api.put(`/novels/${novelId}/progress`, data),
-  upload: (form: FormData) => api.post('/novels/upload', form),
+  upload: (form: FormData) => api.post('/novels/upload', form, { timeout: 120000 }),
+  batchDelete: (ids: string[]) => api.post('/novels/batch-delete', { novel_ids: ids }),
   trash: () => api.get('/novels/trash'),
   restore: (id: string) => api.patch(`/novels/${id}/restore`),
+  permanentDelete: (id: string) => api.delete(`/novels/${id}/permanent`),
 }
 
 // Fonts

@@ -46,12 +46,16 @@ class ArticleRepository:
         tag_id: UUID | None = None,
         q: str | None = None,
         collection_id: UUID | None = None,
+        page: int = 1,
+        size: int = 50,
     ) -> list[Article]:
-        """查询某个用户的所有文章（未删除的），可选按标签/关键词/合集筛选"""
+        """查询某个用户的所有文章（未删除的），可选按标签/关键词/合集筛选，分页"""
         from sqlalchemy import or_
+        from sqlalchemy.orm import selectinload
 
         stmt = (
             select(Article)
+            .options(selectinload(Article.tags), selectinload(Article.collections))
             .where(Article.user_id == user_id)
             .where(Article.is_deleted == False)
             .order_by(Article.created_at.desc())
@@ -64,10 +68,12 @@ class ArticleRepository:
             ).where(ArticleTag.tag_id == tag_id)
 
         if q:
+            # 转义 SQL 通配符 % 和 _，防止用户输入被解释为 LIKE 模式
+            escaped_q = q.replace("%", "\\%").replace("_", "\\_")
             stmt = stmt.where(
                 or_(
-                    Article.title.ilike(f"%{q}%"),
-                    Article.raw_text.ilike(f"%{q}%"),
+                    Article.title.ilike(f"%{escaped_q}%", escape="\\"),
+                    Article.raw_text.ilike(f"%{escaped_q}%", escape="\\"),
                 )
             )
 
@@ -77,6 +83,8 @@ class ArticleRepository:
                 CollectionArticle, Article.id == CollectionArticle.article_id
             ).where(CollectionArticle.collection_id == collection_id)
 
+        offset = (page - 1) * size
+        stmt = stmt.offset(offset).limit(size)
         result = await db.execute(stmt)
         return result.scalars().all()
 

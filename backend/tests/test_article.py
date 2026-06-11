@@ -4,7 +4,7 @@ import pytest
 TEST_USER = {
     "username": "articleuser",
     "email": "articleuser@example.com",
-    "password": "testpassword123"
+    "password": "TestPass123!"
 }
 
 TEST_ARTICLE = {

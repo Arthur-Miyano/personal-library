@@ -7,3 +7,4 @@ from .article import Article
 from .collection import Collection, CollectionArticle
 from .tag import Tag, ArticleTag
 from .settings import UserSettings
+from .font import Font

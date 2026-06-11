@@ -3,7 +3,7 @@ import pytest
 TEST_USER = {
     "username": "taguser",
     "email": "taguser@example.com",
-    "password": "testpassword123"
+    "password": "TestPass123!"
 }
 
 TEST_ARTICLE = {

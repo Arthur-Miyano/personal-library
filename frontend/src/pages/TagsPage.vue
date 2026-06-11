@@ -12,19 +12,31 @@ const showNew = ref(false)
 const newName = ref('')
 const newColor = ref('#409EFF')
 
-onMounted(async () => { const { data } = await tagsApi.list(); tags.value = data })
+onMounted(async () => {
+  try { const { data } = await tagsApi.list(); tags.value = data } catch { /* */ }
+})
 
 async function create() {
   if (!newName.value.trim()) return
-  const { data } = await tagsApi.create({ name: newName.value.trim(), color: newColor.value })
-  tags.value.unshift(data); newName.value = ''; showNew.value = false
+  try {
+    const { data } = await tagsApi.create({ name: newName.value.trim(), color: newColor.value })
+    tags.value.unshift(data); newName.value = ''; showNew.value = false
+  } catch (e: unknown) {
+    const detail = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail
+    ElMessage.error(detail || '创建失败')
+  }
 }
 
 async function remove(tag: Tag) {
   try { await ElMessageBox.confirm(`确定删除标签"${tag.name}"？`, '提示', { type: 'warning' }) } catch { return }
-  await tagsApi.delete(tag.id)
-  tags.value = tags.value.filter(t => t.id !== tag.id)
-  ElMessage.success('已删除')
+  try {
+    await tagsApi.delete(tag.id)
+    tags.value = tags.value.filter(t => t.id !== tag.id)
+    ElMessage.success('已删除')
+  } catch (e: unknown) {
+    const detail = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail
+    ElMessage.error(detail || '删除失败')
+  }
 }
 </script>
 

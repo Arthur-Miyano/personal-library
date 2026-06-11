@@ -4,7 +4,7 @@ import pytest
 TEST_USER = {
     "username": "noveltestuser",
     "email": "noveltest@example.com",
-    "password": "testpassword123"
+    "password": "TestPass123!"
 }
 
 SAMPLE_TXT = (
@@ -294,7 +294,7 @@ async def test_cannot_access_others_novel(client):
     resp = await client.post("/api/v1/novels/upload", files=files, headers={"Authorization": f"Bearer {token_a}"})
     novel_id = resp.json()["id"]
 
-    user_b = {"username": "noveluserb", "email": "novelb@example.com", "password": "testpassword123"}
+    user_b = {"username": "noveluserb", "email": "novelb@example.com", "password": "TestPass123!"}
     await client.post("/api/v1/auth/register", json=user_b)
     login_b = await client.post(
         "/api/v1/auth/login",

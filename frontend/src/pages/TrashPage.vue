@@ -1,17 +1,27 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { ArrowLeft } from '@element-plus/icons-vue'
-import { articlesApi } from '@/api'
-import type { Article } from '@/types'
+import { articlesApi, novelsApi } from '@/api'
+import type { Article, Novel } from '@/types'
 
 const router = useRouter()
+const tab = ref<'articles' | 'novels'>('articles')
 const articles = ref<Article[]>([])
+const novels = ref<Novel[]>([])
 
-onMounted(async () => {
-  const { data } = await articlesApi.trash()
-  articles.value = data
-})
+async function loadTrash() {
+  if (tab.value === 'articles') {
+    const { data } = await articlesApi.trash()
+    articles.value = data
+  } else {
+    const { data } = await novelsApi.trash()
+    novels.value = Array.isArray(data) ? data : (data.items ?? [])
+  }
+}
+
+onMounted(loadTrash)
+watch(tab, loadTrash)
 
 async function restore(id: string) {
   await articlesApi.restore(id)
@@ -24,6 +34,18 @@ async function permanentDelete(id: string) {
   const { data } = await articlesApi.trash()
   articles.value = data
 }
+
+async function restoreNovel(id: string) {
+  await novelsApi.restore(id)
+  const { data } = await novelsApi.trash()
+  novels.value = Array.isArray(data) ? data : (data.items ?? [])
+}
+
+async function permanentDeleteNovel(id: string) {
+  await novelsApi.permanentDelete(id)
+  const { data } = await novelsApi.trash()
+  novels.value = Array.isArray(data) ? data : (data.items ?? [])
+}
 </script>
 
 <template>
@@ -31,18 +53,41 @@ async function permanentDelete(id: string) {
     <div class="page-header">
       <el-icon @click="router.back()"><ArrowLeft /></el-icon>
       <h2>回收站</h2>
-    </div>
-    <div v-for="a in articles" :key="a.id" class="lofter-card trash-item">
-      <div class="info">
-        <span class="title">{{ a.title }}</span>
-        <span class="meta">{{ a.word_count }}字 · {{ a.created_at?.slice(0, 10) }}</span>
-      </div>
-      <div class="actions">
-        <el-button size="small" @click="restore(a.id)">恢复</el-button>
-        <el-button size="small" type="danger" @click="permanentDelete(a.id)">彻底删除</el-button>
+      <div class="trash-tabs">
+        <button :class="{ active: tab === 'articles' }" @click="tab = 'articles'">文章</button>
+        <button :class="{ active: tab === 'novels' }" @click="tab = 'novels'">小说</button>
       </div>
     </div>
-    <el-empty v-if="!articles.length" description="回收站为空" />
+
+    <!-- 文章回收站 -->
+    <template v-if="tab === 'articles'">
+      <div v-for="a in articles" :key="a.id" class="lofter-card trash-item">
+        <div class="info">
+          <span class="title">{{ a.title }}</span>
+          <span class="meta">{{ a.word_count }}字 · {{ a.created_at?.slice(0, 10) }}</span>
+        </div>
+        <div class="actions">
+          <el-button size="small" @click="restore(a.id)">恢复</el-button>
+          <el-button size="small" type="danger" @click="permanentDelete(a.id)">彻底删除</el-button>
+        </div>
+      </div>
+      <el-empty v-if="!articles.length" description="回收站为空" />
+    </template>
+
+    <!-- 小说回收站 -->
+    <template v-if="tab === 'novels'">
+      <div v-for="n in novels" :key="n.id" class="lofter-card trash-item">
+        <div class="info">
+          <span class="title">{{ n.title }}</span>
+          <span class="meta">{{ n.total_words || 0 }}字 · {{ n.created_at?.slice(0, 10) }}</span>
+        </div>
+        <div class="actions">
+          <el-button size="small" @click="restoreNovel(n.id)">恢复</el-button>
+          <el-button size="small" type="danger" @click="permanentDeleteNovel(n.id)">彻底删除</el-button>
+        </div>
+      </div>
+      <el-empty v-if="!novels.length" description="回收站为空" />
+    </template>
   </div>
 </template>
 

@@ -4,7 +4,7 @@ import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { ArrowLeft, UploadFilled } from '@element-plus/icons-vue'
 import type { UploadRawFile } from 'element-plus'
-import api from '@/api'
+import { novelsApi } from '@/api'
 
 const router = useRouter()
 const uploading = ref(false)
@@ -16,7 +16,7 @@ async function handleUpload(rawFile: UploadRawFile) {
     const form = new FormData()
     form.append('file', rawFile)
     if (author.value) form.append('author', author.value)
-    const { data } = await api.post('/novels/upload', form)
+    const { data } = await novelsApi.upload(form)
     router.replace(`/novels/${data.id}`)
   } catch (e: unknown) {
     const detail = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail

@@ -4,9 +4,13 @@ import traceback
 import uuid as uuid_lib
 from pathlib import Path
 
+import aiofiles
+from aiofiles import os as async_os
+
 logger = logging.getLogger(__name__)
 
 from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File, status
+from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from personal_library.api.deps import get_current_user, get_db
@@ -64,7 +68,9 @@ async def upload_novel(
     filename = file.filename or "未命名.txt"
     ext = os.path.splitext(filename)[1].lower()
 
-    from personal_library.core.file_extractor import extract_text, ALLOWED_EXTENSIONS, get_title_from_filename
+    from personal_library.core.file_extractor import (
+        extract_text, ALLOWED_EXTENSIONS, get_title_from_filename, cleanup_text, extract_epub_chapters,
+    )
     if ext not in ALLOWED_EXTENSIONS:
         raise HTTPException(
             status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
@@ -92,13 +98,28 @@ async def upload_novel(
     if len(content) == 0:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="文件为空")
 
-    # 2. 提取文本 → 分章
-    try:
-        text = extract_text(content, filename)
-    except ValueError as e:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+    # 2. 提取文本 → 清洗 → 分章
+    chapters_data: list
+    if ext == ".epub":
+        # EPUB 优先使用 spine 信任分章
+        chapters_data = extract_epub_chapters(content)
+        if chapters_data:
+            text = "\n\n".join(ch.content for ch in chapters_data)
+        else:
+            try:
+                text = extract_text(content, filename)
+            except ValueError as e:
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+            text = cleanup_text(text)
+            chapters_data = parse_chapters(text)
+    else:
+        try:
+            text = extract_text(content, filename)
+        except ValueError as e:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+        text = cleanup_text(text)
+        chapters_data = parse_chapters(text)
 
-    chapters_data = parse_chapters(text)
     if not chapters_data:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="解析章节失败")
 
@@ -108,8 +129,8 @@ async def upload_novel(
     novel_uuid = uuid_lib.uuid4()
     final_path = os.path.join(novels_dir, f"{novel_uuid}.txt")
     try:
-        with open(final_path, "w", encoding="utf-8") as f:
-            f.write(text)
+        async with aiofiles.open(final_path, "w", encoding="utf-8") as f:
+            await f.write(text)
     except OSError:
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="文件存储失败")
 
@@ -120,8 +141,8 @@ async def upload_novel(
         covers_dir = os.path.join(settings.upload_dir, "covers")
         _ensure_dir(covers_dir)
         cover_local_path = os.path.join(covers_dir, f"{novel_uuid}{cover_ext}")
-        with open(cover_local_path, "wb") as f:
-            f.write(cover_data)
+        async with aiofiles.open(cover_local_path, "wb") as f:
+            await f.write(cover_data)
         cover_url = f"/uploads/covers/{novel_uuid}{cover_ext}"
 
     # 5. 写数据库
@@ -136,9 +157,13 @@ async def upload_novel(
         )
     except Exception as e:
         logger.error(f"小说入库失败: {traceback.format_exc()}")
-        # 文件已保存成功，不删除；只清理失败的封面
-        if cover_local_path and os.path.exists(cover_local_path):
-            os.unlink(cover_local_path)
+        # 异步清理失败的封面文件
+        if cover_local_path:
+            try:
+                if await async_os.path.exists(cover_local_path):
+                    await async_os.unlink(cover_local_path)
+            except OSError:
+                pass
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                             detail=f"数据库写入失败: {str(e)[:200]}")
 
@@ -200,6 +225,21 @@ async def delete_novel(
     return None
 
 
+@router.patch("/{novel_id}/restore", status_code=status.HTTP_204_NO_CONTENT)
+async def restore_novel(
+    novel_id: uuid_lib.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """从回收站恢复小说"""
+    novel = await repo.get_by_id(db=db, novel_id=novel_id, include_deleted=True)
+    if not novel or novel.user_id != current_user.id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="小说不存在")
+    novel.is_deleted = False
+    await db.flush()
+    return None
+
+
 @router.delete("/{novel_id}/permanent", status_code=status.HTTP_204_NO_CONTENT)
 async def permanently_delete_novel(
     novel_id: uuid_lib.UUID,
@@ -216,18 +256,37 @@ async def permanently_delete_novel(
 
     await repo.hard_delete(db=db, novel=novel)
 
-    if file_path and os.path.exists(file_path):
+    if file_path:
         try:
-            os.unlink(file_path)
+            if await async_os.path.exists(file_path):
+                await async_os.unlink(file_path)
         except OSError:
             pass
     if cover_path:
         local = os.path.join(settings.upload_dir, cover_path.replace("/uploads/", "", 1))
-        if os.path.exists(local):
-            try:
-                os.unlink(local)
-            except OSError:
-                pass
+        try:
+            if await async_os.path.exists(local):
+                await async_os.unlink(local)
+        except OSError:
+            pass
+    return None
+
+
+class BatchDeleteRequest(BaseModel):
+    novel_ids: list[uuid_lib.UUID]
+
+
+@router.post("/batch-delete", status_code=status.HTTP_204_NO_CONTENT)
+async def batch_delete_novels(
+    body: BatchDeleteRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """批量软删除小说"""
+    for novel_id in body.novel_ids:
+        novel = await repo.get_by_id(db=db, novel_id=novel_id)
+        if novel and novel.user_id == current_user.id:
+            await repo.soft_delete(db=db, novel=novel)
     return None
 
 
@@ -259,17 +318,17 @@ async def upload_cover(
         ext = ".jpg"
     filename = f"{novel_id}{ext}"
     local_path = os.path.join(covers_dir, filename)
-    with open(local_path, "wb") as f:
-        f.write(data)
+    async with aiofiles.open(local_path, "wb") as f:
+        await f.write(data)
 
     # 删除旧封面文件（如果存在且路径可解析）
     if novel.cover_path:
         old_local = os.path.join(settings.upload_dir, novel.cover_path.replace("/uploads/", "", 1))
-        if os.path.exists(old_local):
-            try:
-                os.unlink(old_local)
-            except OSError:
-                pass
+        try:
+            if await async_os.path.exists(old_local):
+                await async_os.unlink(old_local)
+        except OSError:
+            pass
 
     cover_url = f"/uploads/covers/{filename}"
     await repo.update_cover(db=db, novel=novel, cover_path=cover_url)

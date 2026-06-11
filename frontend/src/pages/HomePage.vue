@@ -3,7 +3,7 @@ import { ref, onMounted, nextTick, watch, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { useArticleStore } from '@/stores/article'
-import { articlesApi, collectionsApi } from '@/api'
+import { articlesApi, collectionsApi, tagsApi } from '@/api'
 import type { Collection } from '@/types'
 import BookCard from '@/components/BookCard.vue'
 import gsap from 'gsap'
@@ -30,17 +30,28 @@ const collectionPickerOpen = ref(false)
 const collections = ref<Collection[]>([])
 const selectedCollectionId = ref('')
 
-// 前端搜索过滤
+// 前端搜索：仅标题过滤（避免扫描完整正文造成卡顿）
 const displayArticles = computed(() => {
   let list = store.filteredArticles
   if (props.searchKey) {
     const q = props.searchKey.toLowerCase()
-    list = list.filter(a =>
-      a.title.toLowerCase().includes(q) ||
-      a.raw_text.toLowerCase().includes(q)
-    )
+    list = list.filter(a => a.title.toLowerCase().includes(q))
   }
   return list
+})
+// 后端全文搜索（防抖 400ms）
+let searchTimer: ReturnType<typeof setTimeout> | null = null
+watch(() => props.searchKey, (val) => {
+  if (searchTimer) clearTimeout(searchTimer)
+  searchTimer = setTimeout(async () => {
+    try {
+      const params: Record<string, unknown> = { page: 1, size: 50 }
+      if (val) params.q = val
+      if (store.activeTagId) params.tag_id = store.activeTagId
+      const { data } = await articlesApi.list(params as any)
+      store.articles = data.items || data
+    } catch { /* */ }
+  }, 400)
 })
 
 const selectedCount = computed(() => selectedIds.value.size)
@@ -126,6 +137,26 @@ async function executeClearAll() {
   }
 }
 
+// --- 标签操作 ---
+const tagModalOpen = ref(false)
+const tagNewName = ref('')
+
+async function addTagToSelected(tagId: string) {
+  if (selectedCount.value === 0) return
+  await articlesApi.batchAddTag({ article_ids: [...selectedIds.value], tag_id: tagId })
+  selectedIds.value.clear()
+  tagModalOpen.value = false
+  ElMessage.success('标签已添加')
+}
+
+async function createAndAddTag() {
+  const name = tagNewName.value.trim()
+  if (!name) return
+  const { data: tag } = await tagsApi.create({ name })
+  await addTagToSelected(tag.id)
+  tagNewName.value = ''
+}
+
 // --- 合集操作 ---
 async function openCollectionPicker() {
   collectionPickerOpen.value = false
@@ -156,6 +187,7 @@ async function addSelectedToCollection() {
     <div v-if="selectedCount > 0" class="batch-bar">
       <span class="batch-count">已选择 {{ selectedCount }} 篇</span>
       <button class="batch-btn batch-btn-collection" @click="openCollectionPicker">加入合集</button>
+      <button class="batch-btn batch-btn-tag" @click="tagModalOpen = true">打标签</button>
       <button class="batch-btn batch-btn-delete" @click="deleteModalOpen = true">批量删除</button>
       <button class="batch-btn batch-btn-cancel" @click="selectedIds.clear()">取消选择</button>
     </div>
@@ -272,6 +304,28 @@ async function addSelectedToCollection() {
       </div>
     </Transition>
 
+    <!-- ========================================== 打标签弹窗 ========================================== -->
+    <Transition name="modal">
+      <div v-if="tagModalOpen" class="modal-overlay" @click.self="tagModalOpen = false">
+        <div class="modal-card" style="width: 380px;">
+          <div class="modal-header">
+            <h3 class="modal-title">打标签</h3>
+            <button @click="tagModalOpen = false" class="modal-close">✕</button>
+          </div>
+          <p class="delete-confirm-text" style="margin-bottom: 14px;">为选中的 <strong>{{ selectedCount }}</strong> 篇文章添加标签：</p>
+          <div class="tag-select-list">
+            <button v-for="t in store.tags" :key="t.id" class="tag-select-chip"
+              @click="addTagToSelected(t.id)">#{{ t.name }}</button>
+          </div>
+          <div style="display:flex; gap:8px; margin-top:12px;">
+            <input v-model="tagNewName" placeholder="+ 新标签名" class="clear-all-input" style="margin-bottom:0; flex:1;"
+              @keydown.enter="createAndAddTag" />
+            <button @click="createAndAddTag" class="btn-primary" :disabled="!tagNewName.trim()">创建</button>
+          </div>
+        </div>
+      </div>
+    </Transition>
+
     <!-- ========================================== 加入合集弹窗 ========================================== -->
     <Transition name="modal">
       <div v-if="collectionModalOpen" class="modal-overlay" @click.self="collectionModalOpen = false">
@@ -322,6 +376,15 @@ async function addSelectedToCollection() {
 .batch-btn-delete:hover { background: #FEF2F2; }
 .batch-btn-collection { color: var(--primary); border-color: rgba(200,93,93,0.2); }
 .batch-btn-collection:hover { background: var(--primary-glow); }
+.batch-btn-tag { color: #5A849B; border-color: rgba(90,132,155,0.2); }
+.batch-btn-tag:hover { background: rgba(90,132,155,0.06); }
+
+.tag-select-list { display: flex; flex-wrap: wrap; gap: 6px; }
+.tag-select-chip {
+  padding: 4px 12px; border-radius: 16px; font-size: 12px; border: 1px solid var(--border);
+  background: var(--bg-surface); color: var(--primary); cursor: pointer; transition: all 0.15s;
+}
+.tag-select-chip:hover { background: var(--primary-glow); border-color: var(--primary); }
 .batch-btn-cancel { color: var(--text-muted); }
 .batch-btn-cancel:hover { background: rgba(0,0,0,0.03); }
 

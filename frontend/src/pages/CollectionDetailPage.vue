@@ -15,7 +15,8 @@ const loading = ref(false)
 onMounted(async () => {
   loading.value = true
   try {
-    const id = route.params.id as string
+    const id = Array.isArray(route.params.id) ? route.params.id[0] : route.params.id
+    if (!id) { router.replace('/collections'); return }
     const { data } = await collectionsApi.get(id)
     collection.value = data
   } finally { loading.value = false }

@@ -37,9 +37,11 @@ class CollectionRepository:
         db: AsyncSession,
         user_id: uuid.UUID,
     ) -> list[Collection]:
-        """查询某个用户的所有收藏夹，按 sort_order 升序排列"""
+        """查询某个用户的所有收藏夹，按 sort_order 升序排列。预加载 articles 避免 N+1。"""
+        from sqlalchemy.orm import selectinload
         stmt = (
             select(Collection)
+            .options(selectinload(Collection.articles))
             .where(Collection.user_id == user_id)
             .order_by(Collection.sort_order.asc())
         )

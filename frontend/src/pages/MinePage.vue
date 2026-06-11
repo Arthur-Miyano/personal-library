@@ -38,7 +38,7 @@ function logout() {
       </div>
       <div class="menu-item" @click="router.push('/settings')">
         <el-icon><Setting /></el-icon><span>设置</span>
-        <el-switch v-model="store.isDark" size="small" @change="store.toggleTheme()" />
+        <el-switch v-model="store.isDark" size="small" @click.stop />
       </div>
       <div class="menu-item" @click="router.push('/trash')">
         <el-icon><Delete /></el-icon><span>回收站</span>

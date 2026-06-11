@@ -40,7 +40,11 @@ async function handleLogin() {
   try {
     const { data } = await authApi.login({ username: username.value, password: password.value })
     store.setToken(data.access_token)
-    store.setUsername(data.user?.username || username.value)
+    // 登录后获取用户信息
+    try {
+      const { data: me } = await authApi.me()
+      store.setUsername(me.username)
+    } catch { store.setUsername(username.value) }
     // 登录动画
     gsap.to('#login-card', {
       scale: 0.97, opacity: 0, duration: 0.3,

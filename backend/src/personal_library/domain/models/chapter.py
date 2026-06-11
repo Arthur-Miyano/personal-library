@@ -33,6 +33,7 @@ class Chapter(Base, TimestampMixin):
         index=True,
     )
     chapter_number: Mapped[int] = mapped_column(Integer, nullable=False)
+    suffix: Mapped[str] = mapped_column(String(4), nullable=False, default="")
     title: Mapped[str] = mapped_column(String(500), nullable=False)
     content: Mapped[str] = mapped_column(Text, nullable=False)
     word_count: Mapped[int] = mapped_column(Integer, nullable=False)
@@ -55,7 +56,7 @@ class Chapter(Base, TimestampMixin):
 
     __table_args__ = (
         UniqueConstraint(
-            "novel_id", "chapter_number", name="uq_chapter_novel_chapter_number"
+            "novel_id", "chapter_number", "suffix", name="uq_chapter_novel_chapter_suffix"
         ),
         CheckConstraint(
             "start_position >= 0", name="ck_chapter_start_position_positive"

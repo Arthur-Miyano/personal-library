@@ -3,7 +3,7 @@ import pytest
 TEST_USER = {
     "username": "updateuser",
     "email": "updateuser@example.com",
-    "password": "testpassword123"
+    "password": "TestPass123!"
 }
 
 TEST_ARTICLE = {
@@ -87,7 +87,7 @@ async def test_cannot_update_others_article(client):
     user_b = {
         "username": "updateuserb",
         "email": "updateuserb@example.com",
-        "password": "testpassword123"
+        "password": "TestPass123!"
     }
     await client.post("/api/v1/auth/register", json=user_b)
     login_b = await client.post(

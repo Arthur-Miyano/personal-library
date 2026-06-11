@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { articlesApi, collectionsApi } from '@/api'
-import type { Article, Collection } from '@/types'
+import { articlesApi, collectionsApi, tagsApi, settingsApi } from '@/api'
+import type { Article, Collection, UserSettings } from '@/types'
 import { ElMessage } from 'element-plus'
 
 const route = useRoute()
@@ -14,19 +14,22 @@ const editTitle = ref('')
 const editContent = ref('')
 const collections = ref<Collection[]>([])
 const showCollectionPicker = ref(false)
+const readerSettings = ref<UserSettings | null>(null)
 
 const id = route.params.id as string
 
 onMounted(async () => {
   try {
-    const [aRes, cRes] = await Promise.all([
+    const [aRes, cRes, sRes] = await Promise.all([
       articlesApi.get(id),
       collectionsApi.list(),
+      settingsApi.get().catch(() => ({ data: null })),
     ])
     article.value = aRes.data
     editTitle.value = aRes.data.title
     editContent.value = aRes.data.raw_text
     collections.value = Array.isArray(cRes.data) ? cRes.data : (cRes.data.items ?? [])
+    readerSettings.value = sRes.data
   } catch {
     article.value = null
   }
@@ -57,11 +60,13 @@ async function addTag() {
   const name = newTagInput.value.trim()
   if (!name || !article.value) return
   try {
-    // 需要先创建 tag，再关联到 article
-    // 简化处理：直接添加到本地显示
-    if (!article.value.tags) article.value.tags = []
-    if (!article.value.tags.some(t => t.name === name)) {
-      article.value.tags.push({ id: '', name, color: '#C85D5D' } as any)
+    // 后端 upsert：存在则返回已有标签，不存在则创建
+    const { data: tag } = await tagsApi.create({ name })
+    // 关联到文章
+    if (!article.value.tags?.some(t => t.id === tag.id)) {
+      await articlesApi.addTag(article.value.id, tag.id)
+      if (!article.value.tags) article.value.tags = []
+      article.value.tags.push(tag)
     }
     newTagInput.value = ''
   } catch { /* */ }
@@ -173,8 +178,16 @@ async function saveChanges() {
         <!-- 阅读模式 -->
         <div v-if="!isEditing" class="reader-view">
           <h1 class="reader-title serif-text">{{ article.title }}</h1>
-          <div class="reader-text serif-text">
-            <p v-for="(p, i) in formattedParagraphs" :key="i" class="reader-p">
+          <div class="reader-text serif-text" :style="{
+            fontSize: (readerSettings?.font_size || 16) + 'px',
+            lineHeight: readerSettings?.line_height || 2.1,
+            fontFamily: readerSettings?.font_family || 'system-ui',
+            textIndent: readerSettings?.first_line_indent !== false ? '2em' : '0',
+            maxWidth: (readerSettings?.reader_max_width || 800) + 'px',
+          }" style="margin: 0 auto;">
+            <p v-for="(p, i) in formattedParagraphs" :key="i" class="reader-p" :style="{
+              marginBottom: (readerSettings?.paragraph_spacing ?? 12) + 'px',
+            }">
               {{ p }}
             </p>
           </div>

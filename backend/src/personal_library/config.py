@@ -10,6 +10,8 @@ class Settings(BaseSettings):
     import_root: str = ""                 # 服务器导入根目录（空=禁用）
     import_max_files: int = 1000          # 单次导入文件数上限
     import_max_file_size_mb: int = 50     # 单文件大小上限(MB)
+    jwt_access_expire_minutes: int = 30   # JWT 访问令牌过期时间(分钟)
+    jwt_refresh_expire_days: int = 7      # JWT 刷新令牌过期时间(天)
 
     model_config = {
         "env_file": ".env",   # 从项目根目录的 .env 文件读取配置

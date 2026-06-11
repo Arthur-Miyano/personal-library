@@ -160,10 +160,12 @@ async function createColl() {
 
 async function batchAddOrphans() {
   let ok = 0
-  for (const id of orphanIds.value) {
-    try { await api.post(`/collections/${collectionId.value}/articles/${id}`); ok++; orphanIds.value = orphanIds.value.filter(x => x !== id) }
+  const toAdd = [...orphanIds.value]
+  for (const id of toAdd) {
+    try { await api.post(`/collections/${collectionId.value}/articles/${id}`); ok++ }
     catch { /* */ }
   }
+  orphanIds.value = orphanIds.value.filter(x => !toAdd.includes(x))
   ElMessage.success(`已补加 ${ok} 篇`)
 }
 

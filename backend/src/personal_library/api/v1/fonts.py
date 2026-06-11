@@ -1,6 +1,8 @@
 import os
 import uuid as uuid_lib
 
+import aiofiles
+from aiofiles import os as async_os
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -64,8 +66,8 @@ async def upload_font(
     _ensure_dir(fonts_dir)
     uid = uuid_lib.uuid4()
     local_path = os.path.join(fonts_dir, f"{uid}{ext}")
-    with open(local_path, "wb") as f:
-        f.write(data)
+    async with aiofiles.open(local_path, "wb") as f:
+        await f.write(data)
 
     stored_path = f"/uploads/fonts/{uid}{ext}"
 
@@ -104,10 +106,16 @@ async def delete_font(
 
     await repo.delete(db=db, font=font)
 
-    local_path = os.path.join(settings.upload_dir, font.stored_path.replace("/uploads/", "", 1))
-    if os.path.exists(local_path):
-        try:
-            os.unlink(local_path)
-        except OSError:
-            pass
+    # 安全路径校验：确保解析后的路径在 upload_dir 内，防止路径遍历攻击
+    fonts_dir = os.path.join(settings.upload_dir, "fonts")
+    stored_subpath = font.stored_path.replace("/uploads/", "", 1)
+    local_path = os.path.realpath(os.path.join(fonts_dir, stored_subpath))
+    expected_prefix = os.path.realpath(fonts_dir) + os.sep
+    if not local_path.startswith(expected_prefix):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="非法文件路径")
+    try:
+        if await async_os.path.exists(local_path):
+            await async_os.unlink(local_path)
+    except OSError:
+        pass
     return None

@@ -1,7 +1,9 @@
 from uuid import UUID
 from typing import List
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Response
+from pydantic import BaseModel
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from personal_library.api.deps import get_current_user, get_db
@@ -254,3 +256,96 @@ async def delete_collection(
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="无权操作")
     await repo.delete(db=db, collection=collection)
     return None
+
+
+# ===================== 批量操作 =====================
+
+class BatchArticleRequest(BaseModel):
+    article_ids: list[UUID]
+
+
+@router.post("/{collection_id}/articles/batch", status_code=status.HTTP_204_NO_CONTENT)
+async def batch_add_articles(
+    collection_id: UUID,
+    body: BatchArticleRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """批量添加文章到合集"""
+    collection = await repo.get_by_id(db=db, collection_id=collection_id)
+    if not collection or collection.user_id != current_user.id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="合集不存在")
+
+    # 批量查询文章所有权，避免 N+1
+    if body.article_ids:
+        from sqlalchemy import select as sqla_select
+        articles_stmt = sqla_select(Article).where(
+            Article.id.in_(body.article_ids),
+            Article.user_id == current_user.id,
+        )
+        result = await db.execute(articles_stmt)
+        valid_ids = {a.id for a in result.scalars().all()}
+    else:
+        valid_ids = set()
+
+    for aid in body.article_ids:
+        if aid in valid_ids:
+            await repo.add_article(db=db, collection_id=collection_id, article_id=aid)
+    await db.flush()
+    return Response(status_code=204)
+
+
+class MoveArticleRequest(BaseModel):
+    direction: str  # "up" | "down"
+
+
+@router.post("/{collection_id}/articles/{article_id}/move", status_code=status.HTTP_204_NO_CONTENT)
+async def move_article(
+    collection_id: UUID,
+    article_id: UUID,
+    body: MoveArticleRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """移动合集内文章排序（与相邻文章交换位置）"""
+    from personal_library.domain.models.collection import CollectionArticle, Collection
+
+    # 先校验合集所有权
+    collection = await db.scalar(
+        select(Collection).where(Collection.id == collection_id)
+    )
+    if not collection or collection.user_id != current_user.id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="合集不存在")
+
+    current = await db.scalar(
+        select(CollectionArticle).where(
+            CollectionArticle.collection_id == collection_id,
+            CollectionArticle.article_id == article_id,
+        )
+    )
+    if not current:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="文章不在此合集中")
+
+    if body.direction == "up":
+        neighbor = await db.scalar(
+            select(CollectionArticle).where(
+                CollectionArticle.collection_id == collection_id,
+                CollectionArticle.sort_order < current.sort_order,
+            ).order_by(CollectionArticle.sort_order.desc()).limit(1)
+        )
+    else:
+        neighbor = await db.scalar(
+            select(CollectionArticle).where(
+                CollectionArticle.collection_id == collection_id,
+                CollectionArticle.sort_order > current.sort_order,
+            ).order_by(CollectionArticle.sort_order.asc()).limit(1)
+        )
+
+    if not neighbor:
+        return Response(status_code=204)  # 已在边界
+
+    tmp = current.sort_order
+    current.sort_order = neighbor.sort_order
+    neighbor.sort_order = tmp
+    await db.flush()
+    return Response(status_code=204)

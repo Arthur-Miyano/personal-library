@@ -33,7 +33,7 @@ onMounted(async () => {
       <div v-for="g in groups" :key="g.id" class="group-card surface-card"
         @click="router.push(`/collection/${g.id}`)">
         <div class="group-icon" :style="{ backgroundColor: g.color || '#C85D5D' }">
-          <svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="1.5" class="w-4 h-4">
+          <svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="1.5">
             <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
           </svg>
         </div>
